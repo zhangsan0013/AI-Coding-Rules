@@ -6,5 +6,7 @@ Run the repository integrity check from the repository root:
 pwsh -File checks/check-structure.ps1
 ```
 
-The check verifies required scaffold files, local Markdown links, and duplicate normative
-rule IDs. It deliberately does not interpret rule semantics.
+The check verifies required scaffold files, local Markdown links, duplicate normative rule
+IDs, module status, required rule metadata, and the presence of correct/incorrect examples
+in the canonical `core` modules. It does not assess whether the wording of a rule is
+technically correct for a particular project.
