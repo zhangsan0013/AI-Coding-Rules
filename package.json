@@ -1,0 +1,27 @@
+{
+  "name": "@zhangsan0013/ai-coding-rules",
+  "version": "0.1.0",
+  "description": "Installable AI-assisted embedded software coding rules.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "ai-coding-rules": "bin/ai-coding-rules.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "rules",
+    "profiles",
+    "templates",
+    "docs",
+    "checks",
+    "README.md",
+    "package.json"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

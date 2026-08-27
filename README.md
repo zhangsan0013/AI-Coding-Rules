@@ -2,9 +2,9 @@
 
 A progressively disclosed rule library for AI-assisted embedded software development.
 
-The repository is currently a scaffold. Rule modules define the canonical constraints,
-profiles select a project baseline, and a small routing index tells an AI agent which
-additional modules to load for the task at hand.
+The repository contains the canonical constraints and an npm CLI for installing them into
+target projects. Rule modules define the constraints, profiles select a project baseline,
+and a small routing index tells an AI agent which additional modules to load for the task.
 
 ## How it works
 
@@ -25,7 +25,36 @@ See [the architecture](docs/architecture.md) for responsibilities and precedence
 - `checks/`: repository integrity checks
 - `docs/`: design and contributor documentation
 
-## Start using the scaffold
+## Install with npm
+
+The package includes the rules, profiles, templates, and validation logic. It does not
+require a local checkout of this repository or a runtime connection to GitHub.
+
+From the target project directory, run:
+
+```bash
+npx @zhangsan0013/ai-coding-rules init
+```
+
+The default profile is `bare-metal-c11`. Choose another profile explicitly when needed:
+
+```bash
+npx @zhangsan0013/ai-coding-rules init --profile freertos-c11
+```
+
+The command creates `.ai-rules/`, a managed block in `AGENTS.md`, and
+`PROJECT_RULES.md` when it does not already exist. Existing project instructions and
+project rules are preserved. Preview changes with `--dry-run`.
+
+Update a previously installed ruleset with:
+
+```bash
+npx @zhangsan0013/ai-coding-rules update
+```
+
+Use `--force` only when managed files under `.ai-rules/` were intentionally changed.
+
+## Manual installation
 
 1. Copy this repository, or vendor it, as `.ai-rules/` in the target project.
 2. Adapt `templates/AGENTS.md` into the target project's agent instructions.
