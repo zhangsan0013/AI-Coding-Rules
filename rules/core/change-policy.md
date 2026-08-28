@@ -36,6 +36,33 @@ Incorrect:
 Fix packet lengths, rename unrelated modules, and reformat the entire repository.
 ```
 
+### CORE-CHG-DEFENSIVE-001 [MUST]
+
+AI-assisted changes MUST add defensive handling only when supported by the task
+contract, an existing interface or caller contract, a test that establishes expected
+behavior, or a platform, hardware, or protocol specification. Hypothetical failure modes
+MUST NOT introduce guards, fallbacks, retries, recovery paths, or other behavior without
+supporting evidence.
+
+- Applies when: Generating, modifying, or reviewing AI-assisted code that adds validation, fallback, retry, recovery, or boundary handling.
+- Rationale: Speculative defenses increase code size and state space, can change observable behavior, hide contract gaps, and make verification less reliable without protecting a demonstrated failure mode.
+- Verification: For each new defensive behavior, the change MUST identify its triggering condition, the evidence requiring it, the intended observable behavior, and the verification coverage.
+- Exceptions: Safety, security, hardware, protocol, and public-interface requirements MAY override local evidence only when the authoritative requirement explicitly requires the behavior; that requirement and the resulting behavior MUST be recorded.
+
+Correct:
+
+```text
+Evidence: The packet contract defines lengths above PACKET_MAX_PAYLOAD as invalid.
+Behavior: Return STATUS_INVALID_LENGTH before copying any payload bytes.
+```
+
+Incorrect:
+
+```text
+Evidence: No contract, caller, test, or platform rule permits a missing configuration.
+Behavior: Add a null guard that silently selects defaults, then retry any failure three times.
+```
+
 ### CORE-CHG-COMPAT-001 [MUST]
 
 Changes MUST assess compatibility with callers, persisted data, communication protocols,
