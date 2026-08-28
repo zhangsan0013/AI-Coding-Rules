@@ -15,6 +15,7 @@
     "templates",
     "docs",
     "checks",
+    "examples",
     "README.md",
     "package.json"
   ],

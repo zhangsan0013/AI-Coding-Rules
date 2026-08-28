@@ -11,7 +11,7 @@ const packageInfo = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.j
 
 const DEFAULT_PROFILE = 'bare-metal-c11';
 const MANIFEST_FILE = '.install-manifest.json';
-const MANAGED_PATHS = ['rules', 'profiles', 'templates', 'docs', 'checks', 'README.md'];
+const MANAGED_PATHS = ['rules', 'profiles', 'templates', 'docs', 'checks', 'examples', 'README.md'];
 const AGENTS_BEGIN = '<!-- AI-CODING-RULES:BEGIN -->';
 const AGENTS_END = '<!-- AI-CODING-RULES:END -->';
 
