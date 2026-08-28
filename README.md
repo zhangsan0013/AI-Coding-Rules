@@ -39,12 +39,24 @@ npx @zhangsan0013/ai-coding-rules init
 The default profile is `bare-metal-c11`. Choose another profile explicitly when needed:
 
 ```bash
-npx @zhangsan0013/ai-coding-rules init --profile freertos-c11 --allow-draft
+npx @zhangsan0013/ai-coding-rules init --profile rtos-c11 --allow-draft
 ```
 
-FreeRTOS and STM32 profiles are currently draft because their runtime-specific modules
-are still being reviewed. Use `--allow-draft` only for authoring or experimentation; a
-draft profile is not a claim of complete safety coverage.
+The `rtos-c11`, `freertos-c11`, and `stm32-freertos` profiles are currently draft because
+their runtime, architecture, and platform modules are still being reviewed. Runtime
+adapters, architectures, and toolchains are independent selectors; for example:
+
+```bash
+npx @zhangsan0013/ai-coding-rules resolve \
+  --profile rtos-c11 \
+  --signal rtos-rt-thread \
+  --signal architecture-riscv \
+  --signal toolchain-gcc \
+  --allow-draft
+```
+
+Use `--allow-draft` only for authoring or experimentation; a draft profile or module is
+not a claim of complete safety coverage.
 
 The command creates `.ai-rules/`, a managed block in `AGENTS.md`, and
 `PROJECT_RULES.md` when it does not already exist. Existing project instructions and

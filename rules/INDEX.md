@@ -28,11 +28,31 @@ human-readable routing explanation; the catalog does not duplicate normative rul
 - Polling, timeouts, or error propagation: [timeouts and errors](embedded/timeout-and-errors.md)
 - DMA, cache, or buffer coherency: [DMA and cache](embedded/dma-and-cache.md)
 
-## Runtime and toolchain concerns
+## Runtime concerns
 
 - Tasks, queues, synchronization, or scheduling: [RTOS common](rtos/common.md)
-- FreeRTOS-specific code: [FreeRTOS](rtos/freertos.md)
-- GCC Arm attributes, ABI, linker, or startup behavior: [GCC Arm](toolchains/gcc-arm.md)
+- FreeRTOS-specific code: [FreeRTOS adapter](rtos/freertos.md)
+- RT-Thread-specific code: [RT-Thread adapter](rtos/rt-thread.md)
+- ThreadX-specific code: [ThreadX adapter](rtos/threadx.md)
+
+Vendor-specific RTOS modules extend [RTOS common](rtos/common.md). They must not repeat
+runtime-independent scheduling, blocking, or ownership rules.
+
+## Architecture concerns
+
+- Arm-specific ABI, exception, atomic, or instruction behavior: [Arm](architecture/arm.md)
+- RISC-V-specific ABI, privilege, atomic, or instruction behavior: [RISC-V](architecture/riscv.md)
+
+Architecture modules are independent of the selected RTOS and compiler. Exact core,
+ISA-extension, ABI, and memory-system facts belong in `PROJECT_RULES.md`.
+
+## Toolchain concerns
+
+- GCC-specific extensions, diagnostics, attributes, or optimization behavior: [GCC](toolchains/gcc.md)
+
+Toolchain modules are independent of architecture. Add a target-specific toolchain module
+only when it contains rules that cannot be expressed by the generic compiler and
+architecture modules.
 
 If applicability is uncertain and the omitted module could affect safety or correctness,
 load that module and state the uncertainty.

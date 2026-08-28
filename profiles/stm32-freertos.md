@@ -10,12 +10,17 @@ Status: draft
 
 - Platform family: STM32
 - Runtime: FreeRTOS
-- Default toolchain module: [GCC Arm](../rules/toolchains/gcc-arm.md)
+- Architecture family: Arm
+- Toolchain: project-defined
+
+## Baseline
+
+- [Arm architecture](../rules/architecture/arm.md)
 
 ## Conditional routing
 
 - Load [register access](../rules/embedded/register-access.md) for peripheral access.
 - Load [DMA and cache](../rules/embedded/dma-and-cache.md) only when DMA or cache applies.
 
-The exact MCU, core, cache configuration, HAL or LL usage, and linker layout must be stated
-in `PROJECT_RULES.md`; this profile does not guess them.
+The exact MCU, core, ISA/ABI facts, cache configuration, HAL or LL usage, toolchain, and
+linker layout must be stated in `PROJECT_RULES.md`; this profile does not guess them.

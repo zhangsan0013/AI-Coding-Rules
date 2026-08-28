@@ -4,18 +4,18 @@ Status: draft
 
 ## Inherits
 
-- [Bare-metal C11](bare-metal-c11.md)
+- [RTOS C11](rtos-c11.md)
 
 ## Environment
 
 - Language: C11
 - Runtime: FreeRTOS
+- Architecture: project-defined
 - Toolchain: project-defined
 
-## Additional routing
+## Baseline
 
-- Load [common RTOS rules](../rules/rtos/common.md) for scheduling, tasks, or synchronization.
-- Load [FreeRTOS rules](../rules/rtos/freertos.md) for FreeRTOS interfaces or configuration.
+- [FreeRTOS adapter](../rules/rtos/freertos.md)
 
-Project configuration such as allocation support and interrupt priority limits belongs in
-`PROJECT_RULES.md`.
+Project configuration such as allocation support, interrupt priority limits, version, and
+port belongs in `PROJECT_RULES.md`.

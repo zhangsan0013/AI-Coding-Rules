@@ -12,8 +12,8 @@ modules can be selected without a coverage signal, and installation can leave th
 selected profile inconsistent with `PROJECT_RULES.md`.
 
 The project is currently an embedded C11 rule library, not a domain-neutral constraint
-platform. This specification improves the reusable constraint mechanism while keeping
-unreviewed hardware and RTOS requirements explicitly out of scope.
+platform. Runtime, architecture, and toolchain concerns are represented as orthogonal
+selectors, while unreviewed hardware and RTOS requirements remain explicitly out of scope.
 
 ## Goals
 
@@ -32,6 +32,7 @@ unreviewed hardware and RTOS requirements explicitly out of scope.
 - Do not invent normative interrupt, concurrency, DMA, register, memory, RTOS, or
   toolchain rules without a domain review and concrete verification method.
 - Do not infer task signals from arbitrary natural-language prompts in this iteration.
+- Do not create a profile for every runtime, architecture, and toolchain combination.
 - Do not replace `AGENTS.md` with an agent-specific integration layer.
 - Do not rewrite user-owned project facts or approved exceptions during an update.
 - Do not add runtime dependencies to the package.
@@ -60,6 +61,9 @@ one Markdown module, and its status must match that module's `Status:` line.
 - `signals`: the allowed task-signal names;
 - `modules`: stable `id`, relative `path`, `status`, `loadWhen`, and `dependsOn` values;
 - `profiles`: stable `id`, relative `path`, `status`, `inherits`, and `baseline` values.
+
+Runtime adapters, architecture modules, and toolchain modules are separate catalog entries.
+They may be composed through signals without creating a cross-product profile.
 
 The resolver interface is:
 
@@ -162,7 +166,8 @@ Each completed phase adds one row to the progress log and records:
 
 - Task signals are explicit inputs; the resolver does not infer them from natural-language
   prompts or file diffs.
-- FreeRTOS, STM32, interrupt, concurrency, memory, DMA, register, timeout, and GCC Arm
-  modules remain draft and must not be treated as complete safety coverage.
+- FreeRTOS, RT-Thread, ThreadX, STM32, architecture, interrupt, concurrency, memory, DMA,
+  register, timeout, and GCC toolchain modules remain draft and must not be treated as
+  complete safety coverage.
 - Hosted CI has been configured but was not executed against a remote provider in this
   session.

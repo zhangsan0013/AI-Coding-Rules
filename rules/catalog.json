@@ -12,8 +12,12 @@
     "timeout",
     "dma",
     "rtos",
-    "freertos",
-    "gcc-arm"
+    "rtos-freertos",
+    "rtos-rt-thread",
+    "rtos-threadx",
+    "architecture-arm",
+    "architecture-riscv",
+    "toolchain-gcc"
   ],
   "modules": [
     {
@@ -101,6 +105,20 @@
       "dependsOn": []
     },
     {
+      "id": "architecture.arm",
+      "path": "architecture/arm.md",
+      "status": "draft",
+      "loadWhen": ["architecture-arm"],
+      "dependsOn": []
+    },
+    {
+      "id": "architecture.riscv",
+      "path": "architecture/riscv.md",
+      "status": "draft",
+      "loadWhen": ["architecture-riscv"],
+      "dependsOn": []
+    },
+    {
       "id": "rtos.common",
       "path": "rtos/common.md",
       "status": "draft",
@@ -111,21 +129,35 @@
       "id": "rtos.freertos",
       "path": "rtos/freertos.md",
       "status": "draft",
-      "loadWhen": ["freertos"],
+      "loadWhen": ["rtos-freertos"],
       "dependsOn": ["rtos.common"]
     },
     {
-      "id": "toolchains.gcc-arm",
-      "path": "toolchains/gcc-arm.md",
+      "id": "rtos.rt-thread",
+      "path": "rtos/rt-thread.md",
       "status": "draft",
-      "loadWhen": ["gcc-arm"],
+      "loadWhen": ["rtos-rt-thread"],
+      "dependsOn": ["rtos.common"]
+    },
+    {
+      "id": "rtos.threadx",
+      "path": "rtos/threadx.md",
+      "status": "draft",
+      "loadWhen": ["rtos-threadx"],
+      "dependsOn": ["rtos.common"]
+    },
+    {
+      "id": "toolchains.gcc",
+      "path": "toolchains/gcc.md",
+      "status": "draft",
+      "loadWhen": ["toolchain-gcc"],
       "dependsOn": []
     }
   ],
   "profiles": [
     {
-      "id": "bare-metal-c11",
-      "path": "bare-metal-c11.md",
+      "id": "embedded-c11",
+      "path": "embedded-c11.md",
       "status": "active",
       "inherits": [],
       "baseline": [
@@ -136,18 +168,32 @@
       ]
     },
     {
+      "id": "bare-metal-c11",
+      "path": "bare-metal-c11.md",
+      "status": "active",
+      "inherits": ["embedded-c11"],
+      "baseline": []
+    },
+    {
+      "id": "rtos-c11",
+      "path": "rtos-c11.md",
+      "status": "draft",
+      "inherits": ["embedded-c11"],
+      "baseline": ["rtos.common"]
+    },
+    {
       "id": "freertos-c11",
       "path": "freertos-c11.md",
       "status": "draft",
-      "inherits": ["bare-metal-c11"],
-      "baseline": []
+      "inherits": ["rtos-c11"],
+      "baseline": ["rtos.freertos"]
     },
     {
       "id": "stm32-freertos",
       "path": "stm32-freertos.md",
       "status": "draft",
       "inherits": ["freertos-c11"],
-      "baseline": []
+      "baseline": ["architecture.arm"]
     }
   ]
 }

@@ -7,10 +7,12 @@
 ## Verified project facts
 
 - MCU or SoC: `<value>`
-- CPU core: `<value>`
+- Architecture or ISA: `<value>`
+- CPU core or variant: `<value>`
 - Language standard: `C11`
-- Toolchain and version: `<value>`
-- Runtime or RTOS: `<value>`
+- Compiler and version: `<value>`
+- Toolchain or linker and version: `<value>`
+- Runtime or RTOS and version: `<value>`
 - Cache configuration: `<value>`
 - Allocation policy: `<value>`
 - Linker and startup ownership: `<value>`

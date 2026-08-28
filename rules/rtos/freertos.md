@@ -1,11 +1,12 @@
-# FreeRTOS Rules
+# FreeRTOS Adapter Rules
 
 Status: draft
 
 ## Scope
 
-FreeRTOS interfaces and configuration, including ISR variants, task notifications, queues,
-critical sections, and static or dynamic object creation.
+FreeRTOS-specific interfaces and configuration, including ISR variants, task notifications,
+queues, critical sections, and static or dynamic object creation. Runtime-independent
+requirements belong in [RTOS common](common.md).
 
 ## Load when
 

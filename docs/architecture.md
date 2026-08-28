@@ -49,9 +49,23 @@ overridden.
 
 ## Static and dynamic selection
 
-A profile performs static selection. For example, a FreeRTOS profile selects C11,
-embedded, RTOS-common, and FreeRTOS-specific modules.
+A profile performs static selection. The `embedded-c11` profile supplies the neutral C11
+baseline. Runtime profiles add generic runtime modules, while vendor adapters, architecture,
+and toolchain modules can be selected independently.
 
 The catalog and resolver perform dynamic selection from explicit task signals. They add DMA
-rules only to work marked with the `dma` signal, or public-interface rules only when a
-public header or exported symbol change is marked with `public-interface`.
+rules only to work marked with the `dma` signal, public-interface rules only when a public
+header or exported symbol change is marked with `public-interface`, and a vendor adapter
+only when its runtime signal is present.
+
+The intended selection shape is orthogonal rather than a profile for every product matrix:
+
+| Dimension | Generic selector | Concrete selectors |
+| --- | --- | --- |
+| Runtime | `rtos` | `rtos-freertos`, `rtos-rt-thread`, `rtos-threadx` |
+| Architecture | project-defined | `architecture-arm`, `architecture-riscv` |
+| Toolchain | project-defined | `toolchain-gcc` and future compiler adapters |
+
+An adapter adds behavior that varies at its seam; it must not copy the generic module's
+rules. Exact versions, ISA extensions, core variants, ports, cache state, and linker layout
+remain verified project facts in `PROJECT_RULES.md`.

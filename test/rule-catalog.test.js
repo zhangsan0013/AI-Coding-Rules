@@ -39,8 +39,8 @@ test('catalog adds modules selected by signals', () => {
   ]);
 });
 
-test('catalog expands dependencies for an explicitly allowed draft profile', () => {
-  assert.deepEqual(resolve('freertos-c11', ['freertos'], { allowDraft: true }), [
+test('catalog expands the generic RTOS profile and vendor adapter dependency', () => {
+  assert.deepEqual(resolve('freertos-c11', [], { allowDraft: true }), [
     'core.correctness',
     'core.change-policy',
     'c11.style',
@@ -50,14 +50,31 @@ test('catalog expands dependencies for an explicitly allowed draft profile', () 
   ]);
 });
 
+test('catalog composes runtime, architecture, and toolchain selectors independently', () => {
+  assert.deepEqual(resolve('embedded-c11', [
+    'rtos-rt-thread',
+    'architecture-riscv',
+    'toolchain-gcc',
+  ], { allowDraft: true }), [
+    'core.correctness',
+    'core.change-policy',
+    'c11.style',
+    'c11.naming',
+    'architecture.riscv',
+    'rtos.common',
+    'rtos.rt-thread',
+    'toolchains.gcc',
+  ]);
+});
+
 test('catalog rejects draft profiles and modules without explicit opt-in', () => {
   assert.throws(
     () => resolve('freertos-c11', []),
     /Profile "freertos-c11" is draft.*--allow-draft/,
   );
   assert.throws(
-    () => resolve('bare-metal-c11', ['freertos']),
-    /Module "rtos.freertos" is draft.*--allow-draft/,
+    () => resolve('bare-metal-c11', ['rtos-rt-thread']),
+    /Module "rtos.rt-thread" is draft.*--allow-draft/,
   );
 });
 

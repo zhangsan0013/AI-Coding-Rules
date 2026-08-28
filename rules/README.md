@@ -42,5 +42,6 @@ removed. Put larger examples under `examples/<RULE-ID>/` and link to them from t
 - `CORE-CHG`: change policy
 - `C-STYLE`, `C-NAME`, `C-API`, `C-PP`: C11 rules
 - `EMB-MEM`, `EMB-MMIO`, `EMB-ISR`, `EMB-CONC`, `EMB-ERR`, `EMB-DMA`: embedded rules
-- `RTOS-COMMON`, `RTOS-FREERTOS`: RTOS rules
-- `TOOL-GCCARM`: GCC Arm toolchain rules
+- `ARCH-ARM`, `ARCH-RISCV`: architecture rules
+- `RTOS-COMMON`, `RTOS-FREERTOS`, `RTOS-RTTHREAD`, `RTOS-THREADX`: RTOS rules
+- `TOOL-GCC`: GCC toolchain rules

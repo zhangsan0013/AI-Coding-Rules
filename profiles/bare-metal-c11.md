@@ -2,19 +2,22 @@
 
 Status: active
 
+## Inherits
+
+- [Embedded C11](embedded-c11.md)
+
 ## Environment
 
 - Language: C11
 - Runtime: bare metal
 - RTOS: none
+- Architecture: project-defined
 - Toolchain: project-defined
 
-## Always active
+## Runtime selection
 
-- [Correctness](../rules/core/correctness.md)
-- [Change policy](../rules/core/change-policy.md)
-- [C11 style](../rules/c11/style.md)
-- [Naming](../rules/c11/naming.md)
+No RTOS module is selected by this profile. Load RTOS modules only when the project uses an
+RTOS.
 
 ## Enabled routing areas
 
