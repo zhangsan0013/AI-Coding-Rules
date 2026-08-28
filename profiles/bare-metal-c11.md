@@ -1,6 +1,6 @@
 # Bare-Metal C11 Profile
 
-Status: draft
+Status: active
 
 ## Environment
 
@@ -13,10 +13,13 @@ Status: draft
 
 - [Correctness](../rules/core/correctness.md)
 - [Change policy](../rules/core/change-policy.md)
+- [C11 style](../rules/c11/style.md)
+- [Naming](../rules/c11/naming.md)
 
 ## Enabled routing areas
 
-- [C11 rules](../rules/INDEX.md#c-source-or-header-changes)
-- [Embedded concerns](../rules/INDEX.md#embedded-concerns)
+- [C11 interfaces and preprocessor](../rules/INDEX.md#c-source-or-header-changes)
+- [Embedded concerns](../rules/INDEX.md#embedded-concerns), which are currently draft
+  modules and are not included in the active coverage baseline.
 
-Enabled modules are still loaded on demand through `rules/INDEX.md`.
+Conditional modules are loaded on demand through `rules/catalog.json` and `rules/INDEX.md`.

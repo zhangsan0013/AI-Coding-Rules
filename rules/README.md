@@ -2,6 +2,10 @@
 
 Files under this directory are the canonical source of normative constraints.
 
+`catalog.json` is the machine-readable metadata source for module identity, status,
+activation signals, dependencies, and profile inheritance. It must point to the Markdown
+module that owns the normative text; it must not repeat that text.
+
 ## Rule format
 
 Use one independently testable requirement per rule:

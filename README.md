@@ -39,8 +39,12 @@ npx @zhangsan0013/ai-coding-rules init
 The default profile is `bare-metal-c11`. Choose another profile explicitly when needed:
 
 ```bash
-npx @zhangsan0013/ai-coding-rules init --profile freertos-c11
+npx @zhangsan0013/ai-coding-rules init --profile freertos-c11 --allow-draft
 ```
+
+FreeRTOS and STM32 profiles are currently draft because their runtime-specific modules
+are still being reviewed. Use `--allow-draft` only for authoring or experimentation; a
+draft profile is not a claim of complete safety coverage.
 
 The command creates `.ai-rules/`, a managed block in `AGENTS.md`, and
 `PROJECT_RULES.md` when it does not already exist. Existing project instructions and
@@ -53,6 +57,17 @@ npx @zhangsan0013/ai-coding-rules update
 ```
 
 Use `--force` only when managed files under `.ai-rules/` were intentionally changed.
+
+Inspect the exact modules selected for a profile and explicit task signals:
+
+```bash
+npx @zhangsan0013/ai-coding-rules resolve \
+  --profile bare-metal-c11 \
+  --signal public-interface
+```
+
+The resolver reports stable module IDs and status in deterministic order. A signal that
+selects a draft module fails unless `--allow-draft` is supplied.
 
 ## Manual installation
 

@@ -3,6 +3,10 @@
 Load only the modules required by the current task. `PROJECT_RULES.md` and the selected
 profile establish the project baseline before this routing is applied.
 
+Use [catalog.json](catalog.json) as the machine-readable source for stable module IDs,
+status, activation signals, dependencies, and profile inheritance. This page remains the
+human-readable routing explanation; the catalog does not duplicate normative rule text.
+
 ## Always load
 
 - [Correctness](core/correctness.md)
@@ -32,3 +36,7 @@ profile establish the project baseline before this routing is applied.
 
 If applicability is uncertain and the omitted module could affect safety or correctness,
 load that module and state the uncertainty.
+
+The resolver accepts explicit task signals and returns the ordered module IDs. A draft
+profile or module requires explicit `--allow-draft` and must be reported as draft rather
+than treated as safety coverage.

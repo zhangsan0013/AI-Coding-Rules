@@ -22,6 +22,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "check:structure": "pwsh -File checks/check-structure.ps1"
   }
 }

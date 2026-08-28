@@ -6,6 +6,8 @@ This repository is a progressively disclosed rule library for AI-assisted embedd
 development. Keep these responsibilities separate:
 
 - `rules/` is the only canonical location for normative rules.
+- `rules/catalog.json` is the machine-readable metadata source and must stay synchronized
+  with module and profile status and paths.
 - `rules/INDEX.md` routes tasks to rule modules; it must not duplicate rule text.
 - `profiles/` select modules; they must not restate their rules.
 - `templates/` adapt the library for consuming projects.

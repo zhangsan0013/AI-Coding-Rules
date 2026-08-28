@@ -60,3 +60,34 @@ test('dry-run does not write files', async () => {
   assert.equal(fs.existsSync(path.join(project, '.ai-rules')), false);
   assert.equal(fs.existsSync(path.join(project, 'AGENTS.md')), false);
 });
+
+test('draft profiles require explicit opt-in', async () => {
+  const project = makeProject();
+
+  await assert.rejects(
+    main(['init', '--project', project, '--profile', 'freertos-c11']),
+    /is draft.*--allow-draft/,
+  );
+  await main(['init', '--project', project, '--profile', 'freertos-c11', '--allow-draft']);
+
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(project, '.ai-rules', '.install-manifest.json'), 'utf8'),
+  );
+  assert.equal(manifest.profile, 'freertos-c11');
+});
+
+test('profile changes update the selected project profile', async () => {
+  const project = makeProject();
+
+  await main(['init', '--project', project]);
+  await main(['update', '--project', project, '--profile', 'freertos-c11', '--allow-draft']);
+
+  assert.match(
+    fs.readFileSync(path.join(project, 'PROJECT_RULES.md'), 'utf8'),
+    /`freertos-c11`/,
+  );
+  assert.match(
+    fs.readFileSync(path.join(project, 'AGENTS.md'), 'utf8'),
+    /Selected profile: `\.ai-rules\/profiles\/freertos-c11\.md`/,
+  );
+});

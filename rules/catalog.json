@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "signals": [
+    "c-source",
+    "c-header",
+    "public-interface",
+    "preprocessor",
+    "memory",
+    "mmio",
+    "interrupt",
+    "concurrency",
+    "timeout",
+    "dma",
+    "rtos",
+    "freertos",
+    "gcc-arm"
+  ],
+  "modules": [
+    {
+      "id": "core.correctness",
+      "path": "core/correctness.md",
+      "status": "active",
+      "loadWhen": ["always"],
+      "dependsOn": []
+    },
+    {
+      "id": "core.change-policy",
+      "path": "core/change-policy.md",
+      "status": "active",
+      "loadWhen": ["always"],
+      "dependsOn": []
+    },
+    {
+      "id": "c11.style",
+      "path": "c11/style.md",
+      "status": "active",
+      "loadWhen": ["c-source", "c-header"],
+      "dependsOn": []
+    },
+    {
+      "id": "c11.naming",
+      "path": "c11/naming.md",
+      "status": "active",
+      "loadWhen": ["c-source", "c-header"],
+      "dependsOn": []
+    },
+    {
+      "id": "c11.public-interface",
+      "path": "c11/public-interface.md",
+      "status": "active",
+      "loadWhen": ["public-interface"],
+      "dependsOn": []
+    },
+    {
+      "id": "c11.preprocessor",
+      "path": "c11/preprocessor.md",
+      "status": "active",
+      "loadWhen": ["preprocessor"],
+      "dependsOn": []
+    },
+    {
+      "id": "embedded.memory",
+      "path": "embedded/memory.md",
+      "status": "draft",
+      "loadWhen": ["memory"],
+      "dependsOn": []
+    },
+    {
+      "id": "embedded.register-access",
+      "path": "embedded/register-access.md",
+      "status": "draft",
+      "loadWhen": ["mmio"],
+      "dependsOn": []
+    },
+    {
+      "id": "embedded.interrupts",
+      "path": "embedded/interrupts.md",
+      "status": "draft",
+      "loadWhen": ["interrupt"],
+      "dependsOn": []
+    },
+    {
+      "id": "embedded.concurrency",
+      "path": "embedded/concurrency.md",
+      "status": "draft",
+      "loadWhen": ["concurrency"],
+      "dependsOn": []
+    },
+    {
+      "id": "embedded.timeout-and-errors",
+      "path": "embedded/timeout-and-errors.md",
+      "status": "draft",
+      "loadWhen": ["timeout"],
+      "dependsOn": []
+    },
+    {
+      "id": "embedded.dma-and-cache",
+      "path": "embedded/dma-and-cache.md",
+      "status": "draft",
+      "loadWhen": ["dma"],
+      "dependsOn": []
+    },
+    {
+      "id": "rtos.common",
+      "path": "rtos/common.md",
+      "status": "draft",
+      "loadWhen": ["rtos"],
+      "dependsOn": []
+    },
+    {
+      "id": "rtos.freertos",
+      "path": "rtos/freertos.md",
+      "status": "draft",
+      "loadWhen": ["freertos"],
+      "dependsOn": ["rtos.common"]
+    },
+    {
+      "id": "toolchains.gcc-arm",
+      "path": "toolchains/gcc-arm.md",
+      "status": "draft",
+      "loadWhen": ["gcc-arm"],
+      "dependsOn": []
+    }
+  ],
+  "profiles": [
+    {
+      "id": "bare-metal-c11",
+      "path": "bare-metal-c11.md",
+      "status": "active",
+      "inherits": [],
+      "baseline": [
+        "core.correctness",
+        "core.change-policy",
+        "c11.style",
+        "c11.naming"
+      ]
+    },
+    {
+      "id": "freertos-c11",
+      "path": "freertos-c11.md",
+      "status": "draft",
+      "inherits": ["bare-metal-c11"],
+      "baseline": []
+    },
+    {
+      "id": "stm32-freertos",
+      "path": "stm32-freertos.md",
+      "status": "draft",
+      "inherits": ["freertos-c11"],
+      "baseline": []
+    }
+  ]
+}

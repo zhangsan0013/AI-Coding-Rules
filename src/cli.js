@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { loadRuleCatalog, resolveRuleModuleIds } = require('./rule-catalog');
 
 const packageRoot = path.resolve(__dirname, '..');
 const packageInfo = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
@@ -21,6 +22,8 @@ function parseArgs(argv) {
     project: process.cwd(),
     dryRun: false,
     force: false,
+    allowDraft: false,
+    signals: [],
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -36,6 +39,18 @@ function parseArgs(argv) {
     }
     if (argument === '--force') {
       options.force = true;
+      continue;
+    }
+    if (argument === '--allow-draft') {
+      options.allowDraft = true;
+      continue;
+    }
+    const signalMatch = argument.match(/^--signal(?:=(.*))?$/);
+    if (signalMatch) {
+      options.signals.push(signalMatch[1] || argv[++index]);
+      if (!options.signals[options.signals.length - 1]) {
+        throw new Error('--signal requires a value.');
+      }
       continue;
     }
     if (argument === '--help' || argument === '-h') {
@@ -78,9 +93,23 @@ function listProfiles() {
     .sort();
 }
 
-function assertProfile(profile) {
+function readStatus(filePath) {
+  const content = fs.readFileSync(filePath, 'utf8');
+  const statusMatch = content.match(/^Status:\s*(\S+)\s*$/m);
+  return statusMatch ? statusMatch[1] : null;
+}
+
+function assertProfile(profile, allowDraft) {
   if (!listProfiles().includes(profile)) {
     throw new Error(`Unknown profile "${profile}". Available profiles: ${listProfiles().join(', ')}`);
+  }
+
+  const status = readStatus(path.join(packageRoot, 'profiles', `${profile}.md`));
+  if (status !== 'active' && status !== 'draft') {
+    throw new Error(`Profile "${profile}" has unsupported status "${status || 'missing'}".`);
+  }
+  if (status === 'draft' && !allowDraft) {
+    throw new Error(`Profile "${profile}" is draft. Pass --allow-draft for authoring or experimentation.`);
   }
 }
 
@@ -186,6 +215,7 @@ function validateInstalledRules(aiRulesPath, profile) {
     }
   }
   validateLocalLinks(aiRulesPath);
+  loadRuleCatalog(aiRulesPath);
 }
 
 function buildAgentsBlock(profile) {
@@ -289,11 +319,24 @@ function replaceDirectory(destinationPath, stagePath) {
   }
 }
 
-function writeProjectFiles(projectPath, profile, dryRun) {
+function updateSelectedProfile(content, profile) {
+  const profilePattern = /(^## Selected profile\r?\n\r?\n)(`[^`\r\n]+`)/m;
+  if (!profilePattern.test(content)) {
+    throw new Error('Cannot switch profile because PROJECT_RULES.md has no recognizable Selected profile section.');
+  }
+  return content.replace(profilePattern, `$1\`${profile}\``);
+}
+
+function writeProjectFiles(projectPath, profile, dryRun, syncProfile) {
   const agentsPath = path.join(projectPath, 'AGENTS.md');
   const projectRulesPath = path.join(projectPath, 'PROJECT_RULES.md');
   const agentsBefore = pathExists(agentsPath) ? fs.readFileSync(agentsPath, 'utf8') : '';
   const agentsAfter = mergeAgents(agentsBefore, profile);
+  const projectRulesExists = pathExists(projectRulesPath);
+  const projectRulesBefore = projectRulesExists ? fs.readFileSync(projectRulesPath, 'utf8') : '';
+  const projectRulesAfter = syncProfile
+    ? updateSelectedProfile(projectRulesBefore, profile)
+    : projectRulesBefore;
   const changes = [];
 
   if (!pathExists(agentsPath)) {
@@ -301,14 +344,18 @@ function writeProjectFiles(projectPath, profile, dryRun) {
   } else if (agentsBefore !== agentsAfter) {
     changes.push('update the AI-CODING-RULES block in AGENTS.md');
   }
-  if (!pathExists(projectRulesPath)) {
+  if (!projectRulesExists) {
     changes.push('create PROJECT_RULES.md');
+  } else if (projectRulesBefore !== projectRulesAfter) {
+    changes.push('update the selected profile in PROJECT_RULES.md');
   }
 
   if (!dryRun) {
     fs.writeFileSync(agentsPath, agentsAfter, 'utf8');
-    if (!pathExists(projectRulesPath)) {
+    if (!projectRulesExists) {
       fs.writeFileSync(projectRulesPath, buildProjectRules(profile), 'utf8');
+    } else if (projectRulesBefore !== projectRulesAfter) {
+      fs.writeFileSync(projectRulesPath, projectRulesAfter, 'utf8');
     }
   }
   return changes;
@@ -348,18 +395,19 @@ function prepareAndInstall(projectPath, profile, command, options) {
       throw new Error('Managed .ai-rules files were modified locally. Review the changes or rerun with --force.');
     }
 
+    const profileChanged = Boolean(previousManifest && previousManifest.profile !== profile);
     const changes = [exists ? `replace managed content in ${path.relative(projectPath, aiRulesPath)}` : 'create .ai-rules'];
-    if (previousManifest && previousManifest.profile !== profile) {
+    if (profileChanged) {
       changes.push(`change profile from ${previousManifest.profile} to ${profile}`);
     }
-    changes.push(...writeProjectFiles(projectPath, profile, true));
+    changes.push(...writeProjectFiles(projectPath, profile, true, profileChanged));
     if (options.dryRun) {
       printPlan(command, projectPath, profile, changes);
       return;
     }
 
     replaceDirectory(aiRulesPath, stagePath);
-    writeProjectFiles(projectPath, profile, false);
+    writeProjectFiles(projectPath, profile, false, profileChanged);
     console.log(`${command} complete: ${projectPath}`);
     console.log(`- profile: ${profile}`);
     console.log(`- package: ${packageInfo.name}@${packageInfo.version}`);
@@ -376,12 +424,15 @@ function printHelp() {
 Commands:
   init                         Initialize the current project.
   update                       Update installed managed rules.
+  resolve                      Resolve module IDs for a profile and task signals.
 
 Options:
   --profile <name>             Profile (default: ${DEFAULT_PROFILE} for init).
   --project <path>             Target project (default: current directory).
   --dry-run                    Show changes without writing files.
   --force                      Allow replacing locally modified managed rules.
+  --allow-draft                Allow draft profiles during authoring or experimentation.
+  --signal <name>              Add a task signal for the resolve command. Repeatable.
   --help                       Show this help.
   --version                    Show the package version.
 `);
@@ -395,6 +446,23 @@ async function main(argv) {
   }
   if (options.command === 'version') {
     console.log(packageInfo.version);
+    return;
+  }
+  if (options.command === 'resolve') {
+    const catalog = loadRuleCatalog(packageRoot);
+    const profile = options.profile || DEFAULT_PROFILE;
+    assertProfile(profile, options.allowDraft);
+    const moduleIds = resolveRuleModuleIds(catalog, profile, options.signals, {
+      allowDraft: options.allowDraft,
+      repositoryRoot: packageRoot,
+    });
+    console.log(`resolve plan for profile ${profile}`);
+    console.log(`- signals: ${options.signals.length > 0 ? options.signals.join(', ') : 'none'}`);
+    console.log('- modules:');
+    for (const moduleId of moduleIds) {
+      const module = catalog.modules.find((entry) => entry.id === moduleId);
+      console.log(`  - ${module.id} [${module.status}] ${module.path}`);
+    }
     return;
   }
   if (!['init', 'update'].includes(options.command)) {
@@ -416,7 +484,7 @@ async function main(argv) {
     profile = readJson(manifestPath).profile;
   }
   profile = profile || DEFAULT_PROFILE;
-  assertProfile(profile);
+  assertProfile(profile, options.allowDraft);
   prepareAndInstall(projectPath, profile, options.command, options);
 }
 

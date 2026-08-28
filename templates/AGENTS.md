@@ -7,8 +7,10 @@ Before changing code:
 1. Read `PROJECT_RULES.md` for verified project facts, the selected profile, and exceptions.
 2. Read the selected profile under `.ai-rules/profiles/`.
 3. Read `.ai-rules/rules/INDEX.md`.
-4. Load the always-required modules and only the task-specific modules selected by the index.
-5. If omitting a safety-related module is uncertain, load it and state the uncertainty.
+4. Use `.ai-rules/rules/catalog.json` or the resolver to identify the module IDs selected by
+   the profile and explicit task signals.
+5. Load the always-required modules and only the task-specific modules selected by the index.
+6. If omitting a safety-related module is uncertain, load it and state the uncertainty.
 
 ## Applying rules
 
