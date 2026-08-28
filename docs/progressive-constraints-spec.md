@@ -1,6 +1,6 @@
 # Progressive Constraints Specification
 
-Status: complete for Phases 0-3; Phase 4 deferred
+Status: complete for Phases 0-3; Phase 4 in progress
 
 Baseline commit: `effe308`
 
@@ -150,7 +150,7 @@ domain-owner review. A module must not become active before those gates pass.
 | 1. Installation integrity | done | `src/cli.js`, `profiles/bare-metal-c11.md`, `README.md`, and `test/cli.test.js` updated. `npm test` passed 6/6; `pwsh -File checks/check-structure.ps1` passed. Draft profiles require `--allow-draft`, and profile-changing updates synchronize `PROJECT_RULES.md`. |
 | 2. Deterministic routing | done | Added `rules/catalog.json`, `src/rule-catalog.js`, resolver CLI output, and catalog routing documentation. `node bin/ai-coding-rules.js resolve --profile bare-metal-c11` returned a stable four-module baseline; explicit signals and draft failure behavior were also verified. |
 | 3. Verification and CI | done | Added catalog resolver tests, catalog-aware structure validation, `npm run check:structure`, and `.github/workflows/validate.yml`. Local `npm test` passed 11/11 and the structure check passed; hosted CI execution remains unverified in this session. |
-| 4. Domain coverage | deferred | Requires domain review and is intentionally outside this implementation pass. |
+| 4. Domain coverage | in progress | `rules/embedded/interrupts.md` carries 14 rules covering callable operations (`BOUND-001`, `REENTRANCY-001`, `DURATION-001`), work placement (`DEFER-001`, `SIGNAL-001`), data sharing (`SHARED-001`, `NESTING-001`, `MASK-001`), hardware lifecycle (`CLEAR-001`, `INIT-001`, `VECTOR-001`), and recording (`ERROR-001`, `PRIORITY-001`, `STACK-001`). Each has applicability, rationale, verification, exceptions, and paired examples. Larger examples for `SHARED-001` and `MASK-001` live under `examples/<RULE-ID>/` and are linked from the rule. All 24 inline C blocks and all 4 example files were syntax-checked with `gcc -std=c11 -Wall -Wextra -fsyntax-only` against stub declarations; three defects were found and fixed (an undeclared object, a reserved-identifier call, and a signature mismatch). The module stays draft because domain-owner review is the one gate this work cannot close, so `resolve --signal interrupt` still fails closed without `--allow-draft`. |
 | Final verification | done | `npm test` passed 11/11; `npm run check:structure` passed; JSON/JS syntax checks passed; `git diff --check` passed; working tree contains only the scoped implementation changes. |
 
 ## Change record format
@@ -166,8 +166,12 @@ Each completed phase adds one row to the progress log and records:
 
 - Task signals are explicit inputs; the resolver does not infer them from natural-language
   prompts or file diffs.
-- FreeRTOS, RT-Thread, ThreadX, STM32, architecture, interrupt, concurrency, memory, DMA,
-  register, timeout, and GCC toolchain modules remain draft and must not be treated as
-  complete safety coverage.
+- Rules that link to `examples/` require `examples` to stay in the installer's managed
+  paths and in the package `files` list; dropping it makes the installed copy of every
+  such rule fail link validation.
+- The interrupt module carries drafted rules that have not passed domain-owner review, so
+  it remains draft and must not be treated as complete safety coverage.
+- FreeRTOS, RT-Thread, ThreadX, STM32, architecture, concurrency, memory, DMA, register,
+  timeout, and GCC toolchain modules still contain no normative rules.
 - Hosted CI has been configured but was not executed against a remote provider in this
   session.
