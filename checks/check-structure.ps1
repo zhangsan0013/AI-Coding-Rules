@@ -15,6 +15,7 @@ $requiredFiles = @(
     'profiles/bare-metal-c11.md'
     'templates/AGENTS.md'
     'templates/PROJECT_RULES.md'
+    'templates/.clang-format'
 )
 
 foreach ($relativePath in $requiredFiles) {

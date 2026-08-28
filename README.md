@@ -81,6 +81,24 @@ npx @zhangsan0013/ai-coding-rules resolve \
 The resolver reports stable module IDs and status in deterministic order. A signal that
 selects a draft module fails unless `--allow-draft` is supplied.
 
+## Verification tooling
+
+Several rules name a tool in their `Verification:` field. `templates/.clang-format` is the
+formatter configuration for consuming projects; copy it to the project root and run:
+
+```bash
+clang-format --dry-run --Werror src/counter.c
+```
+
+It encodes only what the rules require: `C-STYLE-FORMAT-001`, `C-STYLE-BRACES-001`,
+`C-STYLE-SWITCH-001`, and `C-STYLE-POINTER-001`. It stays silent on anything the rules
+leave to review, such as declaration order, `sizeof` parentheses, and trailing commas in
+aggregate initializers. A configuration encoding requirements the rules do not state
+would be a second, hidden rule source.
+
+No Doxygen, static analysis, or compiler configuration is bundled yet. Run the
+verification each rule names, and report the checks that were not run.
+
 ## Manual installation
 
 1. Copy this repository, or vendor it, as `.ai-rules/` in the target project.
