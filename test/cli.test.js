@@ -23,6 +23,18 @@ test('init creates rules, manifest, selected profile, and project files', async 
   assert.match(fs.readFileSync(path.join(project, 'PROJECT_RULES.md'), 'utf8'), /`bare-metal-c11`/);
 });
 
+test('installed instructions route through the catalog and precedence', async () => {
+  const project = makeProject();
+
+  await main(['init', '--project', project]);
+
+  const agents = fs.readFileSync(path.join(project, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /rules\/catalog\.json/);
+  assert.match(agents, /docs\/architecture\.md/);
+  assert.match(agents, /state the uncertainty/);
+  assert.match(agents, /Selected profile: `\.ai-rules\/profiles\/bare-metal-c11\.md`/);
+});
+
 test('init preserves existing project instructions and project rules', async () => {
   const project = makeProject();
   const agentsPath = path.join(project, 'AGENTS.md');

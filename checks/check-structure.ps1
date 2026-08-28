@@ -24,8 +24,20 @@ foreach ($relativePath in $requiredFiles) {
     }
 }
 
+# Vendored installation snapshots are self-contained copies of the rules. They are validated
+# by the installer and must not be rescored as a second rule source.
+$scanExclusions = @('sandbox')
 $markdownFiles = Get-ChildItem -LiteralPath $repositoryRoot -Recurse -File -Filter '*.md' |
-    Where-Object { $_.Name -ne 'CODING_RULES.md' }
+    Where-Object {
+        $relative = [System.IO.Path]::GetRelativePath($repositoryRoot, $_.FullName).Replace('\', '/')
+        $excluded = $false
+        foreach ($prefix in $scanExclusions) {
+            if ($relative -eq $prefix -or $relative.StartsWith("$prefix/")) {
+                $excluded = $true
+            }
+        }
+        $_.Name -ne 'CODING_RULES.md' -and -not $excluded
+    }
 $linkPattern = [regex]'\[[^\]]+\]\((?<target>[^)]+)\)'
 $rulePattern = [regex]'(?m)^###\s+(?<id>[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,})\s+\[(?:MUST|SHOULD|MAY)\]\s*$'
 $ruleLocations = @{}
@@ -83,13 +95,16 @@ foreach ($file in $markdownFiles) {
         }
     }
 
-    foreach ($match in $rulePattern.Matches($content)) {
-        $ruleId = $match.Groups['id'].Value
-        if ($ruleLocations.ContainsKey($ruleId)) {
-            $errors.Add("Duplicate rule ID ${ruleId}: $($ruleLocations[$ruleId]) and $relativeFile")
-            continue
+    # Rule IDs are unique within the canonical rule library only.
+    if ($relativeFile -like 'rules/*') {
+        foreach ($match in $rulePattern.Matches($content)) {
+            $ruleId = $match.Groups['id'].Value
+            if ($ruleLocations.ContainsKey($ruleId)) {
+                $errors.Add("Duplicate rule ID ${ruleId}: $($ruleLocations[$ruleId]) and $relativeFile")
+                continue
+            }
+            $ruleLocations[$ruleId] = $relativeFile
         }
-        $ruleLocations[$ruleId] = $relativeFile
     }
 }
 
