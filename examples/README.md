@@ -4,10 +4,10 @@ Store larger examples by rule ID:
 
 ```text
 examples/
-  EMB-ISR-001/
+  <RULE-ID>/
     compliant.c
     violation.c
 ```
 
-Each directory demonstrates one rule. Examples must not introduce requirements that are
-absent from the corresponding canonical rule module.
+Each directory demonstrates one canonical rule and must contain both files. Examples must
+not introduce requirements that are absent from the corresponding canonical rule module.

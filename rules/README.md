@@ -36,6 +36,12 @@ Incorrect:
 Use `MUST`, `SHOULD`, or `MAY` consistently. Stable IDs must not be reused after a rule is
 removed. Put larger examples under `examples/<RULE-ID>/` and link to them from the rule.
 
+Every cataloged module must contain at least one normative rule. A draft module must also
+contain a `Correct:` and an `Incorrect:` example and a paired external example directory;
+these examples demonstrate the rule but do not replace domain-owner review. Keep a module
+`draft` until its wording, assumptions, verification method, and examples have been reviewed
+by the responsible domain owner.
+
 ## Suggested namespaces
 
 - `CORE-CORR`: correctness

@@ -51,14 +51,11 @@ function assertStatusMatches(filePath, expectedStatus, label) {
   }
 }
 
-function assertActiveModuleHasRules(filePath, status, label) {
-  if (status !== 'active') {
-    return;
-  }
+function assertModuleHasRules(filePath, label) {
   const content = fs.readFileSync(filePath, 'utf8');
   const rulePattern = /^###\s+[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,}\s+\[(?:MUST|SHOULD|MAY)\]\s*$/gm;
   if (!rulePattern.test(content)) {
-    throw new Error(`${label} is active but contains no normative rules.`);
+    throw new Error(`${label} contains no normative rules.`);
   }
 }
 
@@ -134,7 +131,7 @@ function validateRuleCatalog(catalog, repositoryRoot) {
 
     const modulePath = assertFile(path.join(repositoryRoot, 'rules'), module.path, `Module "${module.id}"`);
     assertStatusMatches(modulePath, module.status, `Module "${module.id}"`);
-    assertActiveModuleHasRules(modulePath, module.status, `Module "${module.id}"`);
+    assertModuleHasRules(modulePath, `Module "${module.id}"`);
     if (modulePaths.has(module.path)) {
       throw new Error(`Duplicate catalog module path "${module.path}".`);
     }

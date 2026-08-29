@@ -1,6 +1,6 @@
 # Progressive Constraints Specification
 
-Status: complete for Phases 0-3; Phase 4 in progress
+Status: complete for Phases 0-3; Phase 4 implementation complete, domain review pending
 
 Baseline commit: `effe308`
 
@@ -128,7 +128,8 @@ and document the resolver and draft behavior.
 
 For each draft safety module, add independently testable rules with stable IDs, explicit
 applicability, verification, exceptions, compliant examples, violating examples, and a
-domain-owner review. A module must not become active before those gates pass.
+domain-owner review. The repository can complete the rule and evidence preparation, but a
+module must not become active before its domain-owner review gate passes.
 
 ## Acceptance criteria
 
@@ -150,8 +151,8 @@ domain-owner review. A module must not become active before those gates pass.
 | 1. Installation integrity | done | `src/cli.js`, `profiles/bare-metal-c11.md`, `README.md`, and `test/cli.test.js` updated. `npm test` passed 6/6; `pwsh -File checks/check-structure.ps1` passed. Draft profiles require `--allow-draft`, and profile-changing updates synchronize `PROJECT_RULES.md`. |
 | 2. Deterministic routing | done | Added `rules/catalog.json`, `src/rule-catalog.js`, resolver CLI output, and catalog routing documentation. `node bin/ai-coding-rules.js resolve --profile bare-metal-c11` returned a stable four-module baseline; explicit signals and draft failure behavior were also verified. |
 | 3. Verification and CI | done | Added catalog resolver tests, catalog-aware structure validation, `npm run check:structure`, and `.github/workflows/validate.yml`. Local `npm test` passed 11/11 and the structure check passed; hosted CI execution remains unverified in this session. |
-| 4. Domain coverage | in progress | `rules/embedded/interrupts.md` carries 14 rules covering callable operations (`BOUND-001`, `REENTRANCY-001`, `DURATION-001`), work placement (`DEFER-001`, `SIGNAL-001`), data sharing (`SHARED-001`, `NESTING-001`, `MASK-001`), hardware lifecycle (`CLEAR-001`, `INIT-001`, `VECTOR-001`), and recording (`ERROR-001`, `PRIORITY-001`, `STACK-001`). Each has applicability, rationale, verification, exceptions, and paired examples. Larger examples for `SHARED-001` and `MASK-001` live under `examples/<RULE-ID>/` and are linked from the rule. All 24 inline C blocks and all 4 example files were syntax-checked with `gcc -std=c11 -Wall -Wextra -fsyntax-only` against stub declarations; three defects were found and fixed (an undeclared object, a reserved-identifier call, and a signature mismatch). The module stays draft because domain-owner review is the one gate this work cannot close, so `resolve --signal interrupt` still fails closed without `--allow-draft`. |
-| Final verification | done | `npm test` passed 11/11; `npm run check:structure` passed; JSON/JS syntax checks passed; `git diff --check` passed; working tree contains only the scoped implementation changes. |
+| 4. Domain coverage | implementation complete; review pending | All 13 draft modules now contain normative rules with stable IDs and required metadata: the interrupt module has 14 existing rules, and the other 12 modules add 61 rules across memory, MMIO, concurrency, DMA/cache, timeout/error handling, RTOS common and adapters, Arm, RISC-V, and GCC. Every draft module has inline compliant/violating examples and at least one linked paired external example; 14 external example directories are checked. The [domain review register](domain-coverage-review.md) records the remaining owner gates. All draft modules remain draft because domain-owner review is still required, so draft profile and signal resolution still fails closed without `--allow-draft`. |
+| Final verification | done locally; hosted review pending | `npm test` passed 14/14; `npm run check:structure` passed with 36 Markdown files and 114 normative rules; `npm run check:examples` passed all 14 paired directories and GCC C11 syntax checks; `git diff --check` passed. Hosted CI execution and domain-owner review remain unverified in this session. |
 
 ## Change record format
 
@@ -169,9 +170,10 @@ Each completed phase adds one row to the progress log and records:
 - Rules that link to `examples/` require `examples` to stay in the installer's managed
   paths and in the package `files` list; dropping it makes the installed copy of every
   such rule fail link validation.
-- The interrupt module carries drafted rules that have not passed domain-owner review, so
-  it remains draft and must not be treated as complete safety coverage.
-- FreeRTOS, RT-Thread, ThreadX, STM32, architecture, concurrency, memory, DMA, register,
-  timeout, and GCC toolchain modules still contain no normative rules.
+- All hardware, architecture, concurrency, memory, DMA, register, timeout, RTOS, and GCC
+  modules carry drafted rules but have not passed domain-owner review; none may be treated as
+  complete safety coverage yet.
+- The draft profiles remain gated because their baseline modules are draft, even though the
+  repository-controlled rule and example preparation is complete.
 - Hosted CI has been configured but was not executed against a remote provider in this
   session.

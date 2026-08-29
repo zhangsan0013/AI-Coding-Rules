@@ -43,8 +43,8 @@ npx @zhangsan0013/ai-coding-rules init --profile rtos-c11 --allow-draft
 ```
 
 The `rtos-c11`, `freertos-c11`, and `stm32-freertos` profiles are currently draft because
-their runtime, architecture, and platform modules are still being reviewed. Runtime
-adapters, architectures, and toolchains are independent selectors; for example:
+their runtime, architecture, and platform modules have not completed domain-owner review.
+Runtime adapters, architectures, and toolchains are independent selectors; for example:
 
 ```bash
 npx @zhangsan0013/ai-coding-rules resolve \
@@ -97,7 +97,14 @@ aggregate initializers. A configuration encoding requirements the rules do not s
 would be a second, hidden rule source.
 
 No Doxygen, static analysis, or compiler configuration is bundled yet. Run the
-verification each rule names, and report the checks that were not run.
+verification each rule names, and report the checks that were not run. The repository
+checks can be run together with:
+
+```bash
+npm test
+npm run check:structure
+npm run check:examples
+```
 
 ## Manual installation
 

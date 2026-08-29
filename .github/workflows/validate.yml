@@ -18,3 +18,5 @@ jobs:
         run: npm test
       - name: Run structure check
         run: npm run check:structure
+      - name: Run example check
+        run: npm run check:examples

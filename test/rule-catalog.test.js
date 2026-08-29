@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
@@ -83,4 +84,19 @@ test('catalog rejects unknown signals', () => {
     () => resolve('bare-metal-c11', ['not-a-signal']),
     /Unknown resolver signal "not-a-signal"/,
   );
+});
+
+test('every cataloged module is populated and draft modules expose paired examples', () => {
+  const catalog = loadRuleCatalog(repositoryRoot);
+  const rulePattern = /^###\s+[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,}\s+\[(?:MUST|SHOULD|MAY)\]\s*$/m;
+
+  for (const module of catalog.modules) {
+    const content = fs.readFileSync(path.join(repositoryRoot, 'rules', module.path), 'utf8');
+    assert.match(content, rulePattern, `module ${module.id} should contain a normative rule`);
+    assert.doesNotMatch(content, /No normative rules have been defined yet\./);
+    if (module.status === 'draft') {
+      assert.match(content, /^Correct:\s*$/m, `draft module ${module.id} needs a compliant example`);
+      assert.match(content, /^Incorrect:\s*$/m, `draft module ${module.id} needs a violating example`);
+    }
+  }
 });

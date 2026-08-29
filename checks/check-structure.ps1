@@ -55,13 +55,17 @@ foreach ($file in $markdownFiles) {
         }
 
         $moduleRules = @($rulePattern.Matches($content))
-        if ($statusMatch.Groups['status'].Value -eq 'active' -and $moduleRules.Count -eq 0) {
-            $errors.Add("Active rule module has no normative rules: $relativeFile")
+        if ($moduleRules.Count -eq 0) {
+            $errors.Add("Rule module has no normative rules: $relativeFile")
         }
-        if ($relativeFile -in @('rules/core/correctness.md', 'rules/core/change-policy.md') -and $moduleRules.Count -eq 0) {
-            $errors.Add("Core rule module has no normative rules: $relativeFile")
+        if ($statusMatch.Groups['status'].Value -eq 'draft') {
+            if ($content -notmatch '(?m)^Correct:\s*$') {
+                $errors.Add("Draft rule module has no compliant example: $relativeFile")
+            }
+            if ($content -notmatch '(?m)^Incorrect:\s*$') {
+                $errors.Add("Draft rule module has no violating example: $relativeFile")
+            }
         }
-
         foreach ($ruleMatch in $moduleRules) {
             $nextHeading = $content.IndexOf('### ', $ruleMatch.Index + 4)
             if ($nextHeading -lt 0) {
