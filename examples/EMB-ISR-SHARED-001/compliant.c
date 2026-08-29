@@ -1,48 +1,63 @@
 /*
  * EMB-ISR-SHARED-001 compliant example.
  *
- * The handler owns the head index and the loop owns the tail index. Each is volatile and
- * is the core's atomic width, so publishing a slot is a single indivisible store and no
- * critical section is needed for the handoff.
+ * The platform_sync_* functions are the synchronization seam. They must provide
+ * target-supported, ISR-safe atomic accesses and the stated memory ordering; volatile is
+ * not a substitute for that contract.
  *
- * The drop counter is a read-modify-write, but it has one writer and one reader and the
- * read is indivisible at this width, so a reader sees either the old or the new value and
- * never a mixture.
+ * The handler owns the head index and the loop owns the tail index. A release store
+ * publishes a filled slot, and the consumer acquire-loads the head before reading it.
+ * The consumer release-stores the tail only after it has finished reading the slot, so
+ * the handler does not overwrite data still owned by the consumer.
  */
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#define SAMPLE_SLOTS 8u
+#define ISR_SAMPLE_RING_SLOTS 8U
 
-static volatile uint32_t sample_head;      /* written by the handler only */
-static volatile uint32_t sample_tail;      /* written by the loop only */
-static volatile uint32_t sample_dropped;   /* written by the handler only */
-static uint32_t samples[SAMPLE_SLOTS];
+extern uint32_t platform_sync_load_relaxed_u32(const uint32_t *object);
+extern uint32_t platform_sync_load_acquire_u32(const uint32_t *object);
+extern void platform_sync_store_release_u32(uint32_t *object, uint32_t value);
+extern uint32_t platform_adc_read_result_from_isr(void);
+extern void platform_record_sample_drop_from_isr(void);
+
+static uint32_t sample_head = 0U;
+static uint32_t sample_tail = 0U;
+static uint32_t sample_buffer[ISR_SAMPLE_RING_SLOTS] = {0U};
 
 void adc_isr(void)
 {
-    uint32_t head = sample_head;
-    uint32_t next = (head + 1u) % SAMPLE_SLOTS;
+    uint32_t head;
+    uint32_t tail;
+    uint32_t next;
 
-    if (next == sample_tail) {
-        sample_dropped++;   /* EMB-ISR-ERROR-001: record the drop, never swallow it */
+    head = platform_sync_load_relaxed_u32(&sample_head);
+    tail = platform_sync_load_acquire_u32(&sample_tail);
+    next = (head + 1U) % ISR_SAMPLE_RING_SLOTS;
+    if (next == tail) {
+        platform_record_sample_drop_from_isr();
         return;
     }
 
-    samples[head] = ADC0->RESULT;
-    sample_head = next;     /* one indivisible store publishes the slot */
+    sample_buffer[head] = platform_adc_read_result_from_isr();
+    platform_sync_store_release_u32(&sample_head, next);
 }
 
 bool sample_take(uint32_t *value)
 {
-    uint32_t tail = sample_tail;
+    uint32_t head;
+    uint32_t tail;
+    uint32_t next;
 
-    if (tail == sample_head) {
+    tail = platform_sync_load_relaxed_u32(&sample_tail);
+    head = platform_sync_load_acquire_u32(&sample_head);
+    if (tail == head) {
         return false;
     }
 
-    *value = samples[tail];
-    sample_tail = (tail + 1u) % SAMPLE_SLOTS;
+    *value = sample_buffer[tail];
+    next = (tail + 1U) % ISR_SAMPLE_RING_SLOTS;
+    platform_sync_store_release_u32(&sample_tail, next);
     return true;
 }

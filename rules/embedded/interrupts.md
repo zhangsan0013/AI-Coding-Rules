@@ -13,10 +13,20 @@ Changing an interrupt handler or code reachable from interrupt context.
 
 ## Project facts this module depends on
 
-- The atomic access width of the core, and the alignment it requires.
+- The lock-free atomic widths, required alignment, and whether C11 atomic operations are
+  safe to call from interrupt context.
+- The compiler and CPU memory-ordering model, and the barrier or atomic adapter used to
+  publish ordinary RAM between execution contexts.
 - The list of calls the toolchain and libraries document as ISR-safe.
-- Whether interrupt nesting is enabled, and the priority assigned to each vector.
+- The synchronization primitives callable from interrupt context, including their
+  full, failure, and overflow semantics.
+- Whether interrupt nesting is enabled, the priority assigned to each vector, and the
+  priority encoding and mask or threshold semantics.
 - How the platform signals a task from interrupt context.
+- The event coalescing, queue-full, and backpressure policy for each deferred path.
+- The worst-case execution time or conservative upper bound and total latency budget for
+  each handler and ISR-safe operation, including CPU/clock, compiler, and wait-state
+  configuration.
 - The reserved interrupt stack, and the worst-case nesting depth against it.
 
 Record these in `PROJECT_RULES.md`. Where they are unknown, mark them `unknown` rather than
@@ -26,22 +36,43 @@ assuming a default; the rules below change behaviour depending on them.
 
 ### EMB-ISR-BOUND-001 [MUST]
 
-An interrupt handler MUST NOT call any operation that can block, wait, or sleep, including
-delay loops, blocking semaphore or mutex takes, blocking queue receives, dynamic
-allocation, logging, and stdio output.
+An interrupt handler MUST call only operations that the platform or project documents as
+safe for the exact interrupt context and configuration. Each operation MUST return
+without blocking, sleeping, waiting for a scheduler-owned resource, or yielding control,
+and MUST have a finite worst-case execution time. Its result and, where applicable,
+failure, full, and overflow behavior MUST be defined.
 
-- Applies when: Writing or reviewing an interrupt handler, or any function it calls.
-- Rationale: A handler does not own a schedulable context, so a blocking call either deadlocks the system or extends interrupt latency without bound.
-- Verification: Enumerate every call reachable from the handler, including calls through function pointers, and check it against the project's ISR-safe call list.
-- Exceptions: A call MAY be used when the platform documents it as ISR-safe for the specific configuration and the call and its bound are recorded in `PROJECT_RULES.md`.
+Unbounded delay or polling, blocking semaphore or mutex takes, blocking queue operations,
+and ordinary dynamic allocation, logging, or stdio output MUST NOT be used. A documented
+ISR-exit reschedule request MAY be issued as specified by `EMB-ISR-SIGNAL-001`; it requests
+rescheduling at interrupt exit and does not wait inside the handler.
+
+A zero timeout passed to a task-context API MUST NOT be treated as proof of ISR safety;
+the platform's ISR-specific variant MUST be used when one is provided.
+
+- Applies when: Writing or reviewing an interrupt handler or any directly or indirectly reachable operation, including wrappers, callbacks, function-pointer targets, error paths, and platform or RTOS adapters.
+- Rationale: A handler does not own a schedulable context, so a blocking call can deadlock the system or extend interrupt latency without bound. An `ISR-safe` name alone does not prove that an operation is non-blocking, bounded, or able to report a full or failed result.
+- Verification: Enumerate the transitive call graph, including indirect calls and error paths. For each operation, check the platform or project documentation for the exact interrupt context and configuration, then verify its non-blocking and non-yielding behavior, finite worst-case duration, and result plus applicable failure, full, and overflow semantics. Exercise every failure and saturation path.
+- Exceptions: No undocumented call is exempt. A platform primitive or project wrapper MAY be used only when its exact interrupt-context safety, non-blocking behavior, worst-case bound, and result plus applicable failure, full, and overflow semantics are recorded in `PROJECT_RULES.md`.
 
 Correct:
 
 ```c
+#include <stdbool.h>
+#include <stdint.h>
+
+extern uint8_t platform_uart_read_data_from_isr(void);
+extern bool platform_rx_try_put_from_isr(uint8_t byte);
+extern void platform_record_rx_drop_from_isr(void);
+
 void uart_isr(void)
 {
-    uint8_t byte = UART0->DATA;
-    ringbuf_put_isr(&rx_buffer, byte);   /* documented ISR-safe, non-blocking, bounded */
+    uint8_t byte = platform_uart_read_data_from_isr();
+
+    /* These adapters are documented as non-blocking, bounded, and ISR-safe. */
+    if (!platform_rx_try_put_from_isr(byte)) {
+        platform_record_rx_drop_from_isr();
+    }
 }
 ```
 
@@ -51,8 +82,10 @@ Incorrect:
 void uart_isr(void)
 {
     uint8_t byte = UART0->DATA;
-    printf("%c", byte);                             /* stdio may block on a shared lock */
-    xQueueSend(&rx_queue, &byte, portMAX_DELAY);    /* blocks with no schedulable context */
+
+    printf("%c", byte);                             /* may take a stdio lock; no ISR bound */
+    xSemaphoreTake(&rx_mutex, portMAX_DELAY);       /* waits for a task-owned resource */
+    xQueueSend(&rx_queue, &byte, portMAX_DELAY);    /* may block with no schedulable context */
 }
 ```
 
@@ -89,24 +122,39 @@ void timer_isr(void)
 
 ### EMB-ISR-DURATION-001 [MUST]
 
-A handler MUST NOT contain an unbounded loop, a wait for a hardware flag without a
-bounded timeout, or a call whose worst-case duration is unknown.
+A handler and every operation reachable from it MUST have a finite, verifiable worst-case
+execution time. An interrupt handler MUST NOT contain an unbounded loop, retry, or
+hardware poll without a finite timeout.
 
-- Applies when: Writing any loop or polling sequence reachable from interrupt context.
-- Rationale: A handler that can spin forever hangs the system with equal- and lower-priority interrupts masked, and no latency claim can be checked without a bound.
-- Verification: Review each loop for a constant or recorded bound and test the timeout path.
-- Exceptions: A bounded spin MAY be used when the bound, the worst-case duration, and the consequence of exceeding it are recorded.
+Any iteration or time limit MUST be fixed by the project configuration or otherwise
+recorded in `PROJECT_RULES.md`; it MUST NOT be an arbitrary caller-provided value.
+
+- Applies when: Writing or reviewing any loop, polling sequence, retry, delay, timeout, or call reachable from interrupt context, including indirect callbacks, hardware access, platform or RTOS adapters, and error or timeout paths.
+- Rationale: A handler that can spin forever hangs the system with equal- and lower-priority interrupts masked, and a latency claim cannot be checked when a reachable call or retry has no finite upper bound.
+- Verification: Review the complete interrupt call graph. For every loop, retry, and hardware poll, prove a finite project-recorded bound and an explicit success, timeout, or failure path. Obtain a conservative worst-case duration for every reachable operation and the total handler budget, then test first-iteration success, last-iteration success, timeout, failure, and repeated-event cases using the target compiler optimization and timing configuration.
+- Exceptions: A bounded spin, poll, or operation without a static WCET MAY be used only when platform documentation or conservative target analysis establishes a finite upper bound. The bound, timing configuration, worst-case duration, and consequence of exceeding it MUST be recorded in `PROJECT_RULES.md`; no exception permits an unbounded loop, retry, or poll.
 
 Correct:
 
 ```c
-bool spi_wait_tx_empty(uint32_t max_iterations)
+#include <stdbool.h>
+#include <stdint.h>
+
+/* PROJECT_RULES fixes this bound for the target timing configuration. */
+#define ISR_SPI_MAX_ITERATIONS 16U
+
+extern uint32_t platform_spi_status_from_isr(void); /* bounded MMIO read */
+extern void platform_spi_record_timeout_from_isr(void);
+
+bool spi_wait_tx_empty_from_isr(void)
 {
-    for (uint32_t i = 0U; i < max_iterations; i++) {
-        if ((SPI0->SR & SPI_SR_TXE) != 0U) {
+    for (uint32_t i = 0U; i < ISR_SPI_MAX_ITERATIONS; i++) {
+        if ((platform_spi_status_from_isr() & SPI_SR_TXE) != 0U) {
             return true;
         }
     }
+
+    platform_spi_record_timeout_from_isr();
     return false;
 }
 ```
@@ -136,12 +184,22 @@ loop.
 Correct:
 
 ```c
-static volatile bool adc_sample_ready;
+#include <stdbool.h>
+#include <stdint.h>
+
+extern uint32_t platform_adc_read_result_from_isr(void);
+extern bool platform_adc_publish_from_isr(uint32_t sample);
+extern void platform_adc_record_drop_from_isr(void);
 
 void adc_isr(void)
 {
-    adc_sample = ADC0->RESULT;
-    adc_sample_ready = true;   /* the main loop scales, filters, and publishes */
+    uint32_t sample;
+
+    sample = platform_adc_read_result_from_isr();
+    if (!platform_adc_publish_from_isr(sample)) {
+        platform_adc_record_drop_from_isr();
+    }
+    /* The bounded publish primitive wakes the owning loop; filtering stays outside ISR. */
 }
 ```
 
@@ -190,55 +248,115 @@ void dma_done_isr(void)
 
 ### EMB-ISR-SHARED-001 [MUST]
 
-Every object written by an interrupt handler and read outside it, or written outside it
-and read by a handler, MUST be `volatile`-qualified, MUST be of a type the target reads
-and writes in a single indivisible access, and MUST be protected by a critical section
-when any access to it is not indivisible.
+State exchanged between an interrupt context and another execution context MUST use one
+documented, platform-supported synchronization model that defines ownership, atomicity,
+memory ordering, update consistency, and overflow behavior. `volatile` alone MUST NOT be
+used to synchronize ordinary shared RAM.
 
-- Applies when: Declaring or accessing state shared between interrupt and non-interrupt code.
-- Rationale: Without `volatile` the compiler may cache or reorder the access; without atomicity or protection, a read-modify-write loses the interrupt's update and the loss appears far from its cause.
-- Verification: For each shared object, review the qualifier, check the access width against the atomic width recorded in `PROJECT_RULES.md`, and check every non-indivisible access for protection.
-- Exceptions: An object accessed only inside a critical section MAY rely on the section instead of `volatile`, when that choice and the section's bound are recorded.
+- Applies when: Declaring or accessing state shared between interrupt and non-interrupt code, including a message, queue, snapshot, counter, or flag.
+- Rationale: `volatile` does not make a read-modify-write atomic, establish a happens-before relationship, or make several individually atomic fields form one consistent update. An ownership or synchronization contract is required to prevent lost updates, stale payloads, and mixed snapshots.
+- Verification: For each shared object or message, list every reader and writer, select the synchronization model, verify its atomic width and alignment, verify its release/acquire or equivalent barrier semantics, prove multi-field consistency, and test full, empty, overflow, and back-to-back cases.
+- Exceptions: `volatile` MAY be retained for MMIO or other hardware state, but it does not satisfy synchronization for ordinary shared RAM. A project MAY use a different platform-supported model when its ownership, ordering, atomicity, bounds, and failure behavior are recorded in `PROJECT_RULES.md`.
+
+Common models include ownership transfer through an SPSC buffer or mailbox, a platform
+atomic flag or counter, a bounded critical section, an RTOS ISR primitive, and a
+double-buffered snapshot. The model MUST state whether events may be coalesced, dropped,
+or overwritten.
 
 Correct:
 
 ```c
-/* Single indivisible store: safe without protection. */
-static volatile bool adc_sample_ready;
+/*
+ * The platform_sync_* functions are the synchronization seam. Each implementation must
+ * provide target-supported, ISR-safe atomic accesses and the stated memory ordering;
+ * a volatile qualifier is not a substitute for this contract.
+ *
+ * This is an SPSC ownership-transfer buffer. The producer publishes a filled slot with
+ * a release store; the consumer acquire-loads the head before reading that slot. One
+ * slot is reserved, and a full buffer drops the sample through a bounded, observable
+ * platform operation.
+ */
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#define ISR_SAMPLE_RING_SLOTS 8U
+
+extern uint32_t platform_sync_load_relaxed_u32(const uint32_t *object);
+extern uint32_t platform_sync_load_acquire_u32(const uint32_t *object);
+extern void platform_sync_store_release_u32(uint32_t *object, uint32_t value);
+extern uint32_t platform_adc_read_result_from_isr(void);
+extern void platform_record_sample_drop_from_isr(void);
+
+static uint32_t sample_head = 0U;
+static uint32_t sample_tail = 0U;
+static uint32_t sample_buffer[ISR_SAMPLE_RING_SLOTS] = {0U};
 
 void adc_isr(void)
 {
-    adc_sample = ADC0->RESULT;
-    adc_sample_ready = true;
+    uint32_t head;
+    uint32_t tail;
+    uint32_t next;
+
+    head = platform_sync_load_relaxed_u32(&sample_head);
+    tail = platform_sync_load_acquire_u32(&sample_tail);
+    next = (head + 1U) % ISR_SAMPLE_RING_SLOTS;
+    if (next == tail) {
+        platform_record_sample_drop_from_isr();
+        return;
+    }
+
+    sample_buffer[head] = platform_adc_read_result_from_isr();
+    platform_sync_store_release_u32(&sample_head, next);
 }
 
-/* Increment is a read-modify-write, so the reader masks the interrupt. */
-static volatile uint32_t error_count;
-
-uint32_t error_count_read(void)
+bool sample_take(uint32_t *value)
 {
-    uint32_t value;
-    uint32_t state = irq_disable();
+    uint32_t head;
+    uint32_t tail;
+    uint32_t next;
 
-    value = error_count;
-    irq_restore(state);
-    return value;
+    tail = platform_sync_load_relaxed_u32(&sample_tail);
+    head = platform_sync_load_acquire_u32(&sample_head);
+    if (tail == head) {
+        return false;
+    }
+
+    *value = sample_buffer[tail];
+    next = (tail + 1U) % ISR_SAMPLE_RING_SLOTS;
+    platform_sync_store_release_u32(&sample_tail, next);
+    return true;
 }
 ```
 
 Incorrect:
 
 ```c
-static uint32_t error_count;   /* no volatile: the compiler may hoist the read */
+/* Volatile accesses are visible, but there is no publication or snapshot protocol. */
+static volatile uint32_t last_sample = 0U;
+static volatile uint32_t last_timestamp = 0U;
+static volatile bool sample_ready = false;
 
-void spi_isr(void)
+extern uint32_t platform_adc_read_result_from_isr(void);
+extern uint32_t platform_ticks_read_from_isr(void);
+
+void adc_isr(void)
 {
-    error_count = error_count + 1U;   /* read-modify-write, unprotected */
+    last_sample = platform_adc_read_result_from_isr();
+    last_timestamp = platform_ticks_read_from_isr();
+    sample_ready = true;   /* no release publication; repeated events overwrite state */
 }
 
-uint32_t error_count_read(void)
+bool sample_read(uint32_t *sample, uint32_t *timestamp)
 {
-    return error_count;   /* the handler can interleave this read */
+    if (!sample_ready) {
+        return false;
+    }
+
+    *sample = last_sample;
+    *timestamp = last_timestamp;   /* the pair can come from different updates */
+    sample_ready = false;          /* this clear can lose a concurrent ISR event */
+    return true;
 }
 ```
 
@@ -247,38 +365,57 @@ A larger pair of examples for this rule is in
 
 ### EMB-ISR-NESTING-001 [MUST]
 
-Where nesting is enabled, an object or peripheral shared by handlers of different
-priorities MUST be protected against the highest-priority handler that touches it, and
-the project MUST record whether nesting is enabled.
+When nested interrupt contexts or an interrupt context and a critical section can access
+the same object or peripheral, the synchronization model MUST prevent concurrent access
+by every context that can touch it, including a higher-priority handler, and the project
+MUST record the nesting and priority-mask semantics.
 
-- Applies when: Two or more handlers, or a handler and a critical section, touch the same object or peripheral.
-- Rationale: Masking at the accessor's own priority blocks only equal and lower priorities, so a higher-priority sharer still preempts the section and observes it half updated.
-- Verification: For each shared object, list every handler that touches it with its priority, confirm the mask covers the highest, and test with the higher-priority interrupt forced.
-- Exceptions: A project MAY disable nesting and rely on a global mask when that configuration and its latency cost are recorded.
+- Applies when: Two or more handlers, or a handler and a critical section, touch the same object or peripheral while preemption or nesting can occur.
+- Rationale: Priority numbering and mask thresholds differ between targets. A mask that blocks only the current or lower-priority context can let a conflicting higher-priority handler observe a partially updated object.
+- Verification: For each shared object or peripheral, list every handler and critical section that touches it, record their logical priorities and the target's numeric encoding, prove that the selected mask, ownership, or atomic model covers every accessor, and force the highest-priority conflicting context during the protected operation.
+- Exceptions: A project MAY disable nesting and use a global mask, or use an ownership or lock-free model when the platform cannot mask a higher-priority handler, only when the configuration, latency bound, and safety proof are recorded in `PROJECT_RULES.md`.
+
+The selected mask or priority-ceiling adapter MUST be documented as covering every
+conflicting accessor; “mask at the highest priority” is not portable without that
+platform-specific proof.
 
 Correct:
 
 ```c
-/* SPI0_TX at priority 1 can preempt this priority 3 handler; mask at priority 1. */
+/*
+ * PROJECT_RULES records that UART_RX and SPI_TX both access trace_log, that nesting is
+ * enabled, and that this adapter's ceiling blocks every conflicting accessor. Its
+ * returned token restores the caller's previous interrupt state.
+ */
+extern uint32_t platform_trace_log_mask_from_isr(void);
+extern void platform_irq_restore(uint32_t state);
+extern void platform_trace_log_append_from_isr(const char *text);
+
 void uart_rx_isr(void)
 {
-    uint32_t state = irq_mask_at(1);   /* blocks every handler that touches the log */
+    uint32_t state;
 
-    log_append(&trace_log, "rx");
-    irq_restore(state);
+    state = platform_trace_log_mask_from_isr();
+    platform_trace_log_append_from_isr("rx");
+    platform_irq_restore(state);
 }
 ```
 
 Incorrect:
 
 ```c
-/* SPI0_TX at priority 1 can preempt this priority 3 handler. */
+/* This adapter only blocks the current and lower logical priorities. */
+extern uint32_t platform_irq_mask_at_current_priority(void);
+extern void platform_irq_restore(uint32_t state);
+extern void platform_trace_log_append_from_isr(const char *text);
+
 void uart_rx_isr(void)
 {
-    uint32_t state = irq_mask_at(3);   /* blocks only priorities 3 and lower */
+    uint32_t state;
 
-    log_append(&trace_log, "rx");      /* not re-entrant against SPI0_TX */
-    irq_restore(state);
+    state = platform_irq_mask_at_current_priority();
+    platform_trace_log_append_from_isr("rx");   /* SPI_TX can still preempt this */
+    platform_irq_restore(state);
 }
 ```
 
@@ -409,11 +546,13 @@ defined state rather than spinning or returning silently.
 Correct:
 
 ```c
+extern void platform_fault_record_unexpected_irq_from_isr(uint32_t vector);
+extern void platform_irq_clear_pending(uint32_t vector);
+
 void unexpected_irq_handler(uint32_t vector)
 {
-    fault_record.irq = vector;
-    fault_record.unexpected_irq_count++;
-    irq_clear_pending(vector);
+    platform_fault_record_unexpected_irq_from_isr(vector);
+    platform_irq_clear_pending(vector);
 }
 ```
 
@@ -439,12 +578,14 @@ observe, and MUST NOT discard it because there is no caller to return it to.
 Correct:
 
 ```c
+extern void platform_record_uart_overrun_from_isr(void);
+
 void uart_isr(void)
 {
     uint32_t status = UART0->SR;
 
     if ((status & UART_SR_OVERRUN) != 0U) {
-        uart_stats.overrun_count++;   /* the owning task reports and clears this */
+        platform_record_uart_overrun_from_isr();   /* bounded and observable to the owner */
     }
 }
 ```
