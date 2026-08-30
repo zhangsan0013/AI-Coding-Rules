@@ -1,18 +1,19 @@
 # Rule Actionability and Evidence Design
 
+Status: contract and semantic split implemented; domain-owner review pending
+
 ## Goal
 
 Make every normative rule in `rules/` a useful, auditable engineering constraint rather than
-an unbounded recommendation. The repository currently contains 118 rules across 22 modules.
-The rule text is generally grounded in real embedded failure modes, but many rules still rely
-on shared examples, subjective review language, or verification statements without a fixed
-output or pass threshold.
+an unbounded recommendation. The repository now contains 171 rules across 22 modules. At the
+start of this design, many rules relied on shared examples, subjective review language, or
+verification statements without a fixed output or pass threshold.
 
 This design establishes the acceptance contract for every rule, adds evidence and review
 boundaries, and introduces automated gates for the objective parts. It does not make the
 canonical rule library depend on one hardware target, RTOS port, compiler version, or linker.
 
-Baseline: commit `09037d9`.
+Design baseline: commit `a0d6eba`.
 
 ## Approaches considered
 
@@ -88,16 +89,16 @@ themselves.
 Every `MUST` receives a minimal inline pair tied to that rule. External `examples/<RULE-ID>/`
 fixtures are tiered evidence: they are mandatory for rules that need compiler or executable
 proof and for representative high-risk scenarios in every module, but are not required for all
-118 rules. External examples are labeled as rule-level or representative module coverage and
+171 rules. External examples are labeled as rule-level or representative module coverage and
 never substitute for target evidence.
 
 ### Audit statuses and ordering
 
 The audit ledger assigns each rule one of:
 
-- `pass` — contract, examples, verification, and evidence requirements are complete;
-- `needs-rewrite` — useful intent exists but the rule needs a clearer boundary, threshold, or
-  evidence contract;
+- `contract-pass` — contract, examples, verification, and repository evidence requirements are complete;
+- `needs-rewrite` — historical status used during the split; no current rule remains in this
+  state;
 - `demote` — useful guidance exists but cannot be a stable normative constraint;
 - `delete` — no distinct, defensible engineering benefit remains.
 
@@ -128,7 +129,7 @@ syntax check proves target safety.
 
 In scope:
 
-- all 22 canonical rule modules and 118 rule sections;
+- all 22 canonical rule modules and the current 171 normative rule sections;
 - `rules/catalog.json`, `rules/INDEX.md`, rule authoring guidance, examples, checks, tests, and
   domain-review documentation;
 - migration notes for split, merged, demoted, or deleted rule IDs.
@@ -151,14 +152,14 @@ npm run check:examples
 ```
 
 Tests must cover rule-section parsing, missing or placeholder evidence, missing rule-level
-examples, ID migration metadata, and existing CLI/catalog behavior. The final audit report must
-also state which target-specific checks were not run. Hosted CI remains a separate verification
-of the same commands and does not replace domain-owner review.
+examples, the audit-ledger status boundary, and existing CLI/catalog behavior. The final audit
+report must also state which target-specific checks were not run. Hosted CI remains a separate
+verification of the same commands and does not replace domain-owner review.
 
 ## Completion criteria
 
-- Every retained normative rule satisfies the rule contract or has an explicit accepted
-  exception recorded in the ledger.
+- Every retained normative rule satisfies the structural rule contract and has an independently
+  testable boundary recorded in the ledger.
 - Every `MUST` rule has a rule-level `Correct` and `Incorrect` example and a deterministic
   agent-side check plus target evidence or a documented static-only rationale.
 - Subjective style rules are rewritten with thresholds or moved to guidance.

@@ -27,7 +27,7 @@ foreach ($relativePath in $requiredFiles) {
 
 $markdownFiles = Get-ChildItem -LiteralPath $repositoryRoot -Recurse -File -Filter '*.md'
 $linkPattern = [regex]'\[[^\]]+\]\((?<target>[^)]+)\)'
-$rulePattern = [regex]'(?m)^###\s+(?<id>[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,})\s+\[(?:MUST|SHOULD|MAY)\]\s*$'
+$rulePattern = [regex]'(?m)^###\s+(?<id>[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,})\s+\[(?<strength>MUST|SHOULD|MAY)\]\s*$'
 $ruleLocations = @{}
 # Verification is stated in two parts so an unrunnable target step cannot stand in for the
 # agent-side check. CORE-CHG-VERIFY-001 depends on both being present.
@@ -65,8 +65,19 @@ foreach ($file in $markdownFiles) {
             }
         }
         foreach ($ruleMatch in $moduleRules) {
-            $nextHeading = $content.IndexOf('### ', $ruleMatch.Index + 4)
-            if ($nextHeading -lt 0) {
+            $nextHeadingMatch = [regex]::Match(
+                $content.Substring($ruleMatch.Index + 4),
+                '(?m)^##\s'
+            )
+            $nextRuleHeading = $content.IndexOf('### ', $ruleMatch.Index + 4)
+            if ($nextHeadingMatch.Success) {
+                $nextHeading = $ruleMatch.Index + 4 + $nextHeadingMatch.Index
+                if ($nextRuleHeading -ge 0 -and $nextRuleHeading -lt $nextHeading) {
+                    $nextHeading = $nextRuleHeading
+                }
+            } elseif ($nextRuleHeading -ge 0) {
+                $nextHeading = $nextRuleHeading
+            } else {
                 $nextHeading = $content.Length
             }
             $ruleSection = $content.Substring($ruleMatch.Index, $nextHeading - $ruleMatch.Index)
@@ -75,12 +86,51 @@ foreach ($file in $markdownFiles) {
                     $errors.Add("Missing rule metadata ${metadata} in ${relativeFile}: $($ruleMatch.Groups['id'].Value)")
                 }
             }
+
+            $ruleId = $ruleMatch.Groups['id'].Value
+            $strength = $ruleMatch.Groups['strength'].Value
+            $correctExamples = @([regex]::Matches($ruleSection, '(?m)^Correct:\s*$'))
+            $incorrectExamples = @([regex]::Matches($ruleSection, '(?m)^Incorrect:\s*$'))
+            if ($strength -eq 'MUST') {
+                if ($correctExamples.Count -ne 1) {
+                    $errors.Add("MUST rule must have exactly one rule-level Correct example in ${relativeFile}: ${ruleId}")
+                }
+                if ($incorrectExamples.Count -ne 1) {
+                    $errors.Add("MUST rule must have exactly one rule-level Incorrect example in ${relativeFile}: ${ruleId}")
+                }
+            }
+
+            foreach ($verificationField in @('Verification (agent):', 'Verification (target):')) {
+                $verificationMatch = [regex]::Match(
+                    $ruleSection,
+                    "(?m)^- $([regex]::Escape($verificationField))\s*(?<value>.*)$"
+                )
+                if (-not $verificationMatch.Success) {
+                    continue
+                }
+
+                $verificationValue = $verificationMatch.Groups['value'].Value.Trim()
+                if ([string]::IsNullOrWhiteSpace($verificationValue) -or
+                    $verificationValue -match '(?i)^(?:tbd|todo|n/?a|to be determined|review|confirm|verify)\.?$') {
+                    $errors.Add("Placeholder ${verificationField} in ${relativeFile}: ${ruleId}")
+                }
+                if ($verificationValue -match '(?i)^none\.?$') {
+                    $errors.Add("Bare None ${verificationField} must explain why it is not applicable in ${relativeFile}: ${ruleId}")
+                }
+                if ($verificationValue -notmatch '(?i)\bpass\b') {
+                    $errors.Add("Missing pass criterion in ${verificationField} in ${relativeFile}: ${ruleId}")
+                }
+                if ($verificationValue -notmatch '(?i)\bartifact\b') {
+                    $errors.Add("Missing artifact in ${verificationField} in ${relativeFile}: ${ruleId}")
+                }
+            }
+
             if ($relativeFile -like 'rules/core/*.md') {
                 if ($ruleSection -notmatch '(?m)^Correct:\s*$') {
-                    $errors.Add("Missing correct example in ${relativeFile}: $($ruleMatch.Groups['id'].Value)")
+                    $errors.Add("Missing correct example in ${relativeFile}: ${ruleId}")
                 }
                 if ($ruleSection -notmatch '(?m)^Incorrect:\s*$') {
-                    $errors.Add("Missing incorrect example in ${relativeFile}: $($ruleMatch.Groups['id'].Value)")
+                    $errors.Add("Missing incorrect example in ${relativeFile}: ${ruleId}")
                 }
             }
         }

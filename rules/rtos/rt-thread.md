@@ -39,9 +39,9 @@ list is the only contract. A familiar function name is not evidence.
 
 - Applies when: Calling IPC, synchronization, scheduler, memory, or device services from an ISR or an interrupt callback.
 - Rationale: This is the concrete form `RTOS-COMMON-CONTEXT-001` takes in RT-Thread. Because the API surface looks identical from both contexts, the usual failure is calling a waiting service from a handler, where `RT_WAITING_FOREVER` deadlocks with no schedulable context to wait in.
-- Verification (agent): For each RT-Thread call reachable from a handler, look it up in the recorded ISR-safe list and confirm the timeout argument is `RT_WAITING_NO` or the service is documented as non-waiting. A call absent from the list is a finding, not an assumption.
-- Verification (target): Test the full, empty, and wake-up results on the selected BSP.
-- Exceptions: A service MAY be used when the exact version and BSP document its interrupt-context behavior and result semantics.
+- Verification (agent): Trace each RT-Thread call reachable from a handler, match it to the version/BSP ISR-safe list, and check `RT_WAITING_NO` or an explicitly non-waiting contract. Pass when every call is listed and every result path is handled; artifact: ISR call table and source report.
+- Verification (target): Exercise full, empty, and wake-up results on the selected BSP. Pass when the handler never waits and each result matches the recorded status policy; artifact: BSP configuration and ISR trace.
+- Exceptions: A service MAY be used only when the exact version/BSP documents ISR legality and result semantics, with owner, scope, evidence, and review condition recorded.
 
 Correct:
 
@@ -77,9 +77,9 @@ the producer MUST retain or release the storage according to that contract.
 
 - Applies when: Using mailboxes, message queues, memory pools, signals, or a wrapper over them.
 - Rationale: RT-Thread mailboxes carry a pointer-sized value while message queues copy the payload, and both take a `void *`. Passing a stack buffer to a mailbox leaves the receiver a dangling pointer; treating a copied message as owned storage double-releases it. The type system catches neither.
-- Verification (agent): For each send, confirm the API's copy-or-transfer semantics against the payload's storage duration, and confirm the release responsibility on both the success and rejection paths. A stack or scope-local buffer passed to a mailbox is a finding.
-- Verification (target): Test full, empty, rejected, and shutdown paths, confirming no buffer is released twice or leaked when a send is rejected.
-- Exceptions: A wrapper MAY change the ownership model when its interface documents the new model and both sides are tested against it.
+- Verification (agent): For each IPC send, record copy/transfer semantics, storage duration, and release owner on accepted and rejected paths. Pass when no pointer outlives storage and each block is released exactly once; artifact: IPC ownership table and path report.
+- Verification (target): Exercise full, empty, rejected, and shutdown paths. Pass when accepted messages are readable by the receiver and rejected messages are reclaimed once with no leak/double release; artifact: pool trace and IPC result log.
+- Exceptions: A wrapper MAY change ownership only when its interface, owner, boundary, evidence, and review condition document the new model and both sides are tested.
 
 Correct:
 
@@ -119,4 +119,3 @@ int publish_sample(void *mailbox, uint32_t reading)
     return rt_mb_send(mailbox, (uint32_t)(uintptr_t)&local, 0);
 }
 ```
-

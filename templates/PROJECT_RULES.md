@@ -24,6 +24,18 @@ how they will be verified.
 
 No project-specific conventions have been defined yet.
 
+## Verification governance
+
+Record the project-owned verification schema before selecting a risk tier for a change. Do not
+invent a default tier or check set; replace each placeholder with the approved project policy.
+
+- Risk tiers and definitions: `<link to the project risk matrix and tier definitions>`
+- Mandatory check sets by tier: `<link to the required checks for each tier>`
+- Approval policy for omitted checks: `<owner and decision record required>`
+- Evidence register: `<path or system that stores command, result, scope, and artifacts>`
+- Outstanding-check owner directory: `<team or role responsible for closing target-dependent checks>`
+- Public API field parser: `<wrapper that checks parameter, return, ownership, and error fields>`
+
 ## Approved exceptions
 
 No exceptions have been approved yet.

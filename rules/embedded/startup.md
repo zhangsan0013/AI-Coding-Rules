@@ -31,9 +31,9 @@ before `.data`/`.bss` setup completes MUST be one the startup path itself sets.
 
 - Applies when: Writing a reset handler, an early clock or memory init, a constructor-like hook, or anything reachable before the runtime startup finishes.
 - Rationale: `.data` holds initialized statics that startup copies from flash; `.bss` holds zero-initialized statics that startup clears. Before that copy-and-clear runs, a static variable holds whatever was in RAM at reset. Early code that reads one — a "already initialized" flag, a cached handle — sees garbage on a cold boot and often the previous value on a warm one, which is why it passes in testing.
-- Verification (agent): For each function reachable before runtime init, confirm it reads no static or global that init has not yet set. A read of an ordinary initialized static in a reset handler before the copy loop is a finding.
-- Verification (target): Cold-boot the target with RAM left non-zero and confirm behavior, and inspect the startup copy/zero loops in the map.
-- Exceptions: A variable the linker places in a section startup does not touch, or one the reset path sets explicitly, MAY be used when that contract is recorded.
+- Verification (agent): Trace every function reachable before runtime init and inventory its global/static reads. Pass when each read is either explicitly set on the reset path or in a startup-excluded section; artifact: early-call graph and section map.
+- Verification (target): Using the `PROJECT_RULES.md` `boot-runtime-init` configuration, cold-boot with RAM deliberately non-zero, then inspect the target map's copy/zero loops. Pass when early behavior is identical to the initialized reference and no pre-init read depends on stale RAM in 100% of boots; artifact: boot log, map, startup trace, and configuration snapshot.
+- Exceptions: A variable in a startup-excluded section or explicitly set by reset MAY be used only when section, initialization point, owner, and review condition are recorded.
 
 Correct:
 
@@ -82,9 +82,9 @@ from a timer or interrupt that runs regardless of whether the main work is advan
 
 - Applies when: Enabling, configuring, or servicing a watchdog, or adding a long-running operation between two services.
 - Rationale: The watchdog exists to reset a hung system. Servicing it from a periodic timer defeats it exactly when it is needed: the timer keeps firing while the main loop is deadlocked, so the watchdog never trips and the hang is permanent. The service has to be gated on evidence that the work it protects is still running.
-- Verification (agent): Confirm each service call is reached only after the monitored work has demonstrably progressed — a per-task check-in, a completed loop iteration — rather than from an unconditional periodic context. A `wdt_feed()` in a bare timer ISR is a finding.
-- Verification (target): Force a hang in each monitored path and confirm the watchdog resets within its timeout.
-- Exceptions: A windowed or multi-stage watchdog MAY be serviced from a supervisor task when that task independently verifies each monitored unit, and the scheme is recorded.
+- Verification (agent): Trace every watchdog service call to a progress witness (check-in, completed iteration, or equivalent) and reject unconditional timer/ISR paths. Pass when each feed is dominated by a fresh witness from every monitored unit; artifact: call graph and progress-gate table.
+- Verification (target): Using the `PROJECT_RULES.md` `watchdog-progress` configuration, force a hang in each monitored path. Pass when the watchdog reset occurs within the configured timeout window and no feed occurs after the witness stops in 100% of injected hangs; artifact: reset-cause log, watchdog timing trace, and configuration snapshot.
+- Exceptions: A windowed or multi-stage watchdog MAY be serviced by a supervisor only when it independently verifies each monitored unit and records owner, witness, timeout, and review condition.
 
 Correct:
 
@@ -132,14 +132,14 @@ void systick_isr(void)
 
 ### EMB-BOOT-BRINGUP-001 [MUST]
 
-A resource MUST be brought up before it is used, and each initialization step MUST verify
-the hardware reached the expected state before the next step depends on it.
+A resource MUST NOT be used until its initialization path has observed the documented ready
+or lock state for that resource.
 
 - Applies when: Sequencing clock, power, memory-controller, or peripheral initialization at boot.
-- Rationale: Boot order is a dependency graph, not a list. Using a peripheral before its clock is enabled reads back zeros or faults; proceeding past a PLL-enable before the lock bit sets runs the whole system at the wrong frequency. The failure surfaces later, as a driver that "randomly" does not work, because the missing check erased the evidence.
-- Verification (agent): Confirm each step that enables a clock, PLL, regulator, or memory controller waits on the corresponding ready or lock status, with a bounded wait, before dependent code runs. A configuration write immediately followed by use, with no readiness check, is a finding.
-- Verification (target): Test cold boot across the supported voltage and temperature range, where lock and ready times vary most.
-- Exceptions: A step the reference manual documents as taking effect synchronously MAY omit the wait when that is recorded.
+- Rationale: Boot order is a dependency graph, not a list. Using a peripheral before its clock is enabled reads back zeros or faults; proceeding past a PLL-enable before the lock bit sets runs the whole system at the wrong frequency. The missing readiness observation erases the evidence and makes the later failure look random.
+- Verification (agent): Build the startup dependency graph and map each resource use to the ready/lock observation that dominates it. Pass when every dependent use is reachable only through the documented ready state and each readiness wait has a finite result; artifact: bring-up sequence and readiness table.
+- Verification (target): Using the `PROJECT_RULES.md` `boot-bringup` configuration, cold-boot across the supported voltage and temperature corners. Pass when every dependent step executes only after its ready/lock state is observed and all waits terminate within the recorded bound in 100% of boots; artifact: boot trace, status samples, and configuration snapshot.
+- Exceptions: A synchronously effective step MAY omit a readiness wait only when the reference-manual clause, owner, affected dependency, and review condition are recorded.
 
 Correct:
 

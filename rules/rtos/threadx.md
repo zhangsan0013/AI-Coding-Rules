@@ -32,16 +32,16 @@ bounds are in that module and are not restated here.
 ### RTOS-THREADX-ISR-001 [MUST]
 
 A ThreadX service called from interrupt context MUST be one the selected port documents as
-ISR-legal, MUST use `TX_NO_WAIT`, and its returned status MUST be inspected.
+ISR-legal.
 
-`TX_NO_WAIT` makes a call non-blocking; it does not make it legal. The two are separate
-properties, and only the port's service table settles the second.
+`TX_NO_WAIT` and status handling are separate requirements; this rule covers only the
+selected port's service legality table.
 
 - Applies when: Calling queues, semaphores, event flags, pools, timers, or scheduler services from an ISR.
-- Rationale: This is the concrete form `RTOS-COMMON-CONTEXT-001` takes in ThreadX. Because most services accept a wait option from either context, `TX_NO_WAIT` reads as sufficient evidence of ISR safety when it is only half of it. Discarding the status then hides `TX_QUEUE_FULL`, which is the normal result under load rather than an exceptional one.
-- Verification (agent): For each ThreadX call reachable from a handler, confirm the service appears in the port's ISR-legal table, that the wait option is `TX_NO_WAIT`, and that the returned status reaches a branch. A discarded status or an unlisted service is a finding.
-- Verification (target): Test the success, full, and error results, including a queue that is full when the interrupt fires.
-- Exceptions: A service MAY be called from an ISR when the exact version and port document that operation and its wake-up behavior.
+- Rationale: ThreadX service legality depends on the selected port and version; a symbol that accepts an interrupt caller on one port may be illegal on another.
+- Verification (agent): Trace every ThreadX call reachable from a handler and match it to the selected port's ISR-legal service table. Pass when no reachable service is absent from that table; artifact: ISR service table, port/version record, and call-graph report.
+- Verification (target): Using the `PROJECT_RULES.md` `threadx-isr-legality` configuration, invoke each reachable service on the selected port with production interrupt entry. Pass when every listed service completes without an ISR-context assertion and no unlisted service is called in 100% of trials; artifact: ISR trace, port/version configuration, and assertion log.
+- Exceptions: A service MAY be called from an ISR only when the exact version/port documents legality and wake behavior, with owner, scope, evidence, and review condition recorded.
 
 Correct:
 
@@ -58,7 +58,71 @@ void sensor_isr(void *queue, uint32_t reading)
 {
     uint32_t message = reading;
 
-    /* The port's service table lists tx_queue_send as ISR-legal with TX_NO_WAIT. */
+    /* The selected port's service table lists tx_queue_send as ISR-legal. */
+    (void)tx_queue_send(queue, &message, TX_NO_WAIT);
+}
+```
+
+Incorrect:
+
+```c
+void sensor_isr(void *queue, uint32_t reading)
+{
+    (void)queue;
+    (void)reading;
+    tx_queue_delete(queue); /* this service is not listed as ISR-legal */
+}
+```
+
+### RTOS-THREADX-ISR-002 [MUST]
+
+A ThreadX service called from interrupt context MUST use `TX_NO_WAIT` whenever the service
+accepts a wait option.
+
+- Applies when: Calling a ThreadX queue, semaphore, event, timer, or pool service from an ISR that exposes a wait parameter.
+- Rationale: An interrupt handler cannot block for a scheduler-owned resource; a nonzero wait option can suspend the current context or enter an unbounded wait path.
+- Verification (agent): Inspect every ISR-reachable ThreadX call that takes a wait option. Pass when the argument is exactly `TX_NO_WAIT` or the selected port documents an equivalent non-wait value; artifact: ISR call-site table and wait-option report.
+- Verification (target): Using the `PROJECT_RULES.md` `threadx-isr-wait` configuration, force each called resource to be unavailable or full. Pass when every ISR call returns immediately without entering a wait state in 100% of trials; artifact: scheduler trace, wait-option log, and configuration snapshot.
+- Exceptions: A port-specific non-wait constant MAY replace `TX_NO_WAIT` only when its value and equivalent semantics are documented with version, owner, and review condition.
+
+Correct:
+
+```c
+void sensor_isr(void *queue, uint32_t reading)
+{
+    uint32_t message = reading;
+    (void)tx_queue_send(queue, &message, TX_NO_WAIT);
+}
+```
+
+Incorrect:
+
+```c
+void sensor_isr(void *queue, uint32_t reading)
+{
+    uint32_t message = reading;
+    (void)tx_queue_send(queue, &message, 10U); /* can wait from interrupt context */
+}
+```
+
+### RTOS-THREADX-ISR-003 [MUST]
+
+An interrupt handler MUST inspect and handle the returned status of every ThreadX service it
+calls before returning.
+
+- Applies when: A ThreadX ISR service can report success, full, unavailable, invalid, or another documented error status.
+- Rationale: Queue-full and resource-unavailable statuses are normal interrupt-time outcomes; discarding them hides data loss or leaves the owner without a recovery signal.
+- Verification (agent): Trace every ThreadX return value reachable from an ISR to a branch, counter, flag, or owner notification. Pass when no service status is discarded and every documented non-success status reaches its configured handling path; artifact: status-result table, control-flow report, and owner locations.
+- Verification (target): Using the `PROJECT_RULES.md` `threadx-isr-status` configuration, inject success, full, unavailable, and error statuses at least 100 times per service. Pass when the observed handler action matches the configured status policy for every injection; artifact: ISR status trace, owner log, and configuration snapshot.
+- Exceptions: A status MAY be ignored only when the selected API contract proves the result is impossible for the configured state and the proof, owner, and review condition are recorded.
+
+Correct:
+
+```c
+void sensor_isr(void *queue, uint32_t reading)
+{
+    uint32_t message = reading;
+
     if (tx_queue_send(queue, &message, TX_NO_WAIT) != TX_SUCCESS) {
         platform_record_queue_full_from_isr();
     }
@@ -71,9 +135,7 @@ Incorrect:
 void sensor_isr(void *queue, uint32_t reading)
 {
     uint32_t message = reading;
-
-    /* TX_NO_WAIT is present, but the status is dropped: a full queue loses the sample. */
-    (void)tx_queue_send(queue, &message, TX_NO_WAIT);
+    (void)tx_queue_send(queue, &message, TX_NO_WAIT); /* status is discarded */
 }
 ```
 
@@ -87,9 +149,9 @@ owner, on every success, cancellation, timeout, and error path.
 
 - Applies when: Allocating, passing, splitting, or releasing pool-backed buffers and messages.
 - Rationale: `tx_byte_release` and `tx_block_release` take only the pointer and locate the owning pool from the block header. A pointer into the middle of a block, or one already released, corrupts that header and the damage appears in an unrelated allocation later.
-- Verification (agent): Track each allocated pointer to a release on every branch, including early returns and error paths. Confirm the released pointer is the one allocation returned, not an offset into it, and that ownership after a failed handoff is stated.
-- Verification (target): Inject exhaustion, cancellation, and a double release, and confirm subsequent allocations still behave.
-- Exceptions: A wrapper MAY transfer ownership when its interface preserves the pool identity, the block boundary, and the release responsibility.
+- Verification (agent): Track each pool allocation to release on every success, cancellation, timeout, and error path; compare the release pointer with the returned block boundary and record failed-handoff ownership. Pass when each allocation has exactly one matching release; artifact: pool ownership ledger and path report.
+- Verification (target): Inject exhaustion, cancellation, failed handoff, and double release. Pass when exhaustion/cancellation are reported, double release is rejected or asserted, and subsequent allocations remain valid; artifact: pool trace and status log.
+- Exceptions: A wrapper MAY transfer ownership only when it preserves pool identity, block boundary, release responsibility, owner, and review condition in its interface contract.
 
 Correct:
 
@@ -109,6 +171,7 @@ unsigned int send_frame(void *pool, unsigned long size)
         return status;
     }
 
+    /* The contract makes frame_transmit synchronous; ownership remains with this function. */
     status = frame_transmit(frame, size);
     (void)tx_byte_release(frame);   /* released on both the success and failure paths */
     return status;
@@ -134,4 +197,3 @@ unsigned int send_frame(void *pool, unsigned long size)
     return 0U;
 }
 ```
-

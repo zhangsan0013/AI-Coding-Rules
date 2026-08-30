@@ -31,9 +31,9 @@ by copying a structure's bytes or casting a byte buffer to a structure pointer.
 
 - Applies when: Encoding or decoding a network packet, a bus frame, a file record, or a message shared with another processor.
 - Rationale: A `struct` overlaid on bytes bakes in three of the current compiler's choices — padding between members, member alignment, and CPU byte order — none of which is part of the protocol. The same source produces different bytes on a different target, and `memcpy` of the struct sends the padding too. Field-by-field serialization with explicit shifts is the only form that is portable and reviewable against the spec.
-- Verification (agent): Confirm each field is read or written with explicit byte operations against the documented order. A cast of a `uint8_t *` buffer to a message-struct pointer, or a `memcpy` between a struct and a wire buffer, is a finding.
-- Verification (target): Test round-trips against a reference vector, and on a target of the opposite byte order where one exists.
-- Exceptions: A structure MAY be copied whole when both ends are the same image and the layout is asserted with `_Static_assert`, or when a generated serializer owns the layout.
+- Verification (agent): Inventory each boundary field and match its encode/decode operations to the documented byte order; reject struct casts and struct-to-buffer copies. Pass when every field has an explicit byte operation or a verified generator owns it; artifact: field layout table and source scan.
+- Verification (target): Using the `PROJECT_RULES.md` `wire-serialization` configuration, run round-trips against reference vectors and, where available, an opposite-endian target. Pass when every vector produces identical bytes and decoding returns the original field values in 100% of cases; artifact: vector log, serialized byte dump, and configuration snapshot.
+- Exceptions: A structure MAY be copied whole only when both ends are the same image and `_Static_assert` proves layout, or a generated serializer owns it; record image pair, generator version, owner, and review condition.
 
 Correct:
 
@@ -82,9 +82,9 @@ assembled from its bytes instead.
 
 - Applies when: Parsing a received buffer, indexing into a packet, or overlaying a type on data at a runtime offset.
 - Rationale: `*(uint32_t *)(buf + 1)` is an unaligned read. On a core that faults on it, this is a hard fault at a byte-dependent offset; on one that permits it, the code is silently non-portable to one that does not. The byte-assembly form is both safe and byte-order-explicit, so it also satisfies `EMB-REPR-SERIALIZE-001`.
-- Verification (agent): Find each cast of a `uint8_t *` (or `void *` over bytes) to a wider pointer type, and confirm the offset is provably aligned for the target or that unaligned access is recorded as supported. A cast at a runtime or odd offset is a finding.
-- Verification (target): Build with alignment checking enabled and test the odd-offset case on the target.
-- Exceptions: A cast MAY be used when the buffer's alignment is guaranteed and the offset is a multiple of the type's alignment, both recorded.
+- Verification (agent): Find each byte-buffer-to-wide-pointer cast and prove buffer alignment plus offset divisibility from the type's `_Alignof`; otherwise flag it. Pass when every cast has a static proof or an explicit target support record; artifact: alignment proof and source scan.
+- Verification (target): Using the `PROJECT_RULES.md` `buffer-alignment` configuration with alignment fault checking enabled, exercise aligned, odd-offset, and boundary inputs. Pass when aligned inputs decode correctly and unsupported offsets are rejected or never issued in 100% of cases; artifact: fault log, test trace, and configuration snapshot.
+- Exceptions: A cast MAY be used only when buffer alignment and offset divisibility are recorded with target/core, owner, evidence, and review condition.
 
 Correct:
 
@@ -112,14 +112,13 @@ uint32_t read_be32(const uint8_t *p)
 
 ### EMB-REPR-FIELD-001 [MUST]
 
-A field that crosses a boundary MUST be represented with a fixed-width type, and a C
-bit-field MUST NOT be used to describe an externally defined bit layout.
+A field that crosses a boundary MUST use a fixed-width integer or explicitly sized byte type.
 
 - Applies when: Declaring a protocol field, a register overlay, or any layout an external party defines.
-- Rationale: `int`, `long`, and `enum` have implementation-defined width, so a field declared with one changes size between targets. Bit-fields are worse for external layout: the standard leaves allocation order, straddling, and the base type's signedness implementation-defined, so a bit-field struct describing a hardware register is not portable and often not even correct on the intended target. Extract bits with shifts and masks against a fixed-width value.
-- Verification (agent): Confirm each boundary-crossing field uses an exact-width type, and that no `struct` with bit-fields overlays a register or wire format. A bit-field used for a hardware bit layout is a finding.
-- Verification (target): Assert the size and, where the layout is a struct, offsets with `_Static_assert` for the target build.
-- Exceptions: A bit-field MAY be used for state internal to one image whose layout no external party observes.
+- Rationale: `int`, `long`, and `enum` have implementation-defined width, so a field declared with one changes size between targets and no longer matches the external contract.
+- Verification (agent): Inventory each boundary field's width and signedness against the external contract. Pass when every externally observed integer field uses the documented fixed-width type and no implementation-defined-width field remains; artifact: field-type table and source report.
+- Verification (target): Using the `PROJECT_RULES.md` `external-layout` configuration, compile `_Static_assert` checks for each external field size and offset. Pass when the target build succeeds with every documented size and offset and the negative layout fixture fails; artifact: compiler output, layout report, and configuration snapshot.
+- Exceptions: A project-defined wrapper type MAY stand for a fixed-width field only when its width, signedness, and target mapping are machine-checked and recorded with owner and review condition.
 
 Correct:
 
@@ -140,14 +139,49 @@ static uint8_t status_ready(uint32_t status)
 Incorrect:
 
 ```c
+struct header {
+    int id;       /* width varies by implementation */
+    long length;  /* width varies by ABI */
+};
+```
+
+### EMB-REPR-BITFIELD-001 [MUST]
+
+A C bit-field MUST NOT describe a bit layout defined by an external interface.
+
+- Applies when: Declaring or accessing protocol fields, register overlays, or shared-memory bits whose positions are defined outside one C implementation.
+- Rationale: C leaves bit-field allocation order, straddling, and base-type details implementation-defined, so the same declaration can assign different bits on different targets. Mask and shift operations against a fixed-width value expose the intended layout directly.
+- Verification (agent): Inventory each externally defined bit and inspect declarations for C bit-fields. Pass when every external bit is extracted or assigned with a documented mask and shift, with no external-layout bit-field remaining; artifact: bit-layout table and source report.
+- Verification (target): Using the `PROJECT_RULES.md` `external-bit-layout` configuration, compile and run vectors that set each documented bit independently. Pass when each vector changes only its documented bit and the negative bit-field fixture is rejected by review or static analysis; artifact: bit-vector log, analysis output, and configuration snapshot.
+- Exceptions: A bit-field MAY be used for state internal to one image only when its layout is not observed externally and the scope, owner, and review condition are recorded.
+
+Correct:
+
+```c
+#include <stdint.h>
+
+#define STATUS_READY_Pos 0U
+#define STATUS_READY_Msk (1U << STATUS_READY_Pos)
+#define STATUS_ERROR_Pos 1U
+#define STATUS_ERROR_Msk (1U << STATUS_ERROR_Pos)
+
+static uint32_t status_ready(uint32_t status)
+{
+    return (status & STATUS_READY_Msk) >> STATUS_READY_Pos;
+}
+```
+
+Incorrect:
+
+```c
 struct status_bits {
-    unsigned ready : 1;   /* bit position and base-type signedness are not portable */
+    unsigned ready : 1;   /* bit position and allocation order are not portable */
     unsigned error : 1;
 };
 
-static int status_ready(struct status_bits s)
+static unsigned status_ready(struct status_bits status)
 {
-    return s.ready;
+    return status.ready;
 }
 ```
 

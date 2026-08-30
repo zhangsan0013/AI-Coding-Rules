@@ -24,6 +24,7 @@ RTOS.
 Inherited from [Embedded C11](embedded-c11.md), plus:
 
 - [Register access](../rules/embedded/register-access.md)
+- [Startup](../rules/embedded/startup.md)
 
 Every change on a bare-metal target touches or is constrained by memory-mapped hardware, so
 this module is not signal-gated here.

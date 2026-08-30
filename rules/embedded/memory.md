@@ -31,9 +31,30 @@ asynchronous pointer MUST carry an explicit lifetime contract.
 
 - Applies when: Returning, storing, queueing, or passing pointers across a call, task, interrupt, DMA, or asynchronous callback boundary.
 - Rationale: A pointer value does not extend the lifetime of the object it identifies, so a valid-looking address can become a use-after-scope or use-after-release defect.
-- Verification (agent): Trace each pointer consumer back to the object it points into and confirm that object outlives the last use, including on error and deferred paths. A pointer to an automatic object that escapes its scope, or one retained past a release, is a finding.
-- Verification (target): Test the last-use-after-transfer case and confirm the object is still valid at that point.
-- Exceptions: A shorter lifetime MAY be used only when the API contract proves that no consumer can retain or dereference the pointer after the lifetime ends.
+- Verification (agent): Trace each pointer consumer back to its storage object on success, error, and deferred paths. Pass when the lifetime interval covers every possible dereference and the API contract names the last-use event; artifact: pointer/lifetime table and call-path report.
+- Verification (target): Using the `PROJECT_RULES.md` `memory-lifetime` configuration, exercise the last-use-after-transfer and cancellation cases. Pass when the consumer observes valid storage through the documented last-use event and no access occurs after release in 100% of runs; artifact: allocator trace, assertion log, and configuration snapshot.
+- Exceptions: A shorter lifetime MAY be used only when the API contract proves no consumer can retain or dereference the pointer after the end, with owner, last-use event, and review condition recorded.
+
+Correct:
+
+```c
+static uint8_t rx_storage[64];
+
+const uint8_t *queue_frame(void)
+{
+    return rx_storage; /* the documented static storage outlives the queued use */
+}
+```
+
+Incorrect:
+
+```c
+const uint8_t *queue_frame(void)
+{
+    uint8_t frame[64];
+    return frame; /* queued consumers dereference storage after this return */
+}
+```
 
 ### EMB-MEM-OWNERSHIP-001 [MUST]
 
@@ -42,9 +63,32 @@ its lifetime, and ownership transfer or borrowing MUST be explicit at the interf
 
 - Applies when: Sharing buffers, handles, messages, pool entries, or dynamically allocated objects between contexts.
 - Rationale: An explicit owner makes mutation and release responsibility reviewable and prevents double release, leaks, and concurrent mutation.
-- Verification (agent): Name the owner of each shared buffer, handle, or pool entry at every interface it crosses, then check the success, rejection, cancellation, timeout, and reset paths for exactly one release. Two paths that both release, or none that does, are findings.
-- Verification (target): Test every terminal ownership transition, including a transfer that the receiver rejects.
-- Exceptions: Shared immutable storage MAY have multiple readers when its retention and reclamation rule is documented and verified.
+- Verification (agent): Name the owner of each shared buffer, handle, or pool entry at every interface, then build success, rejection, cancellation, timeout, and reset paths. Pass when each terminal path has exactly one release and no concurrent owner; artifact: ownership ledger and path report.
+- Verification (target): Using the `PROJECT_RULES.md` `memory-ownership` configuration, test every terminal transition, including receiver rejection. Pass when the ownership counter returns to zero exactly once for each object and no use follows release in 100% of cases; artifact: allocator/owner trace and configuration snapshot.
+- Exceptions: Shared immutable storage MAY have multiple readers only when retention, reclamation owner, reader set, and review condition are documented and verified.
+
+Correct:
+
+```c
+bool enqueue_frame(void *queue, frame_t *frame)
+{
+    if (!queue_try_put(queue, frame)) {
+        frame_release(frame); /* producer retains ownership on rejection */
+        return false;
+    }
+    return true; /* receiver owns the frame after acceptance */
+}
+```
+
+Incorrect:
+
+```c
+void enqueue_frame(void *queue, frame_t *frame)
+{
+    queue_put(queue, frame);
+    frame_release(frame); /* both producer and receiver now may release it */
+}
+```
 
 ### EMB-MEM-STACK-001 [MUST]
 
@@ -57,9 +101,9 @@ accumulate on one stack.
 
 - Applies when: Adding local objects, call depth, recursion, callbacks, or a task entry function; adding a handler or enabling another nesting level.
 - Rationale: Overflow corrupts whatever the linker placed below the stack, so it surfaces as an unrelated fault long after the write. Nested handlers are the common way a bound that looked sufficient stops being sufficient.
-- Verification (agent): Trace the deepest reachable path in the change, including error branches and the nesting levels the project records as enabled, and compare the total against the reserved size and its margin. Report a missing recorded reservation as a gap.
-- Verification (target): Measure the worst-case high-water mark with the target compiler and configuration, forcing the deepest nesting path.
-- Exceptions: A project that disables interrupt nesting MAY budget a single interrupt frame when that configuration is recorded. Otherwise none for a context that can execute the changed path.
+- Verification (agent): Trace the deepest reachable path, error branches, compiler frames, and recorded interrupt nesting levels, then sum them against the reserved size. Pass when the computed use is below the reservation by the recorded margin; artifact: stack budget table and call-path report.
+- Verification (target): Using the `PROJECT_RULES.md` `stack-budget` configuration with the target compiler and optimization settings, measure high-water use while forcing the deepest nesting path. Pass when the observed high-water plus safety margin is no greater than the reserved stack for every context; artifact: stack watermark log, map, and configuration snapshot.
+- Exceptions: A project that disables interrupt nesting MAY budget one interrupt frame only when the configuration, frame size, owner, and review condition are recorded; otherwise no exception applies.
 
 Correct:
 
@@ -76,15 +120,131 @@ The stack size was copied from an example project; no nesting depth was measured
 
 ### EMB-MEM-ALLOC-001 [MUST]
 
-Allocation and reclamation MUST be permitted only in documented contexts, MUST have a
-finite failure path, and MUST leave ownership and object state unchanged when allocation
-fails.
+Allocation and reclamation MUST be called only from contexts documented as legal for the
+selected allocator and runtime.
 
 - Applies when: Calling an allocator, pool, object factory, or reclamation routine, including indirectly from callbacks or interrupt-reachable code.
-- Rationale: Allocation latency, fragmentation, locks, and failure are context-dependent; treating allocation as infallible converts resource exhaustion into memory corruption.
-- Verification (agent): Confirm each allocation site is in a context the project permits, has a failure branch, and leaves ownership and object state unchanged when it fails. An allocation whose result is used without a null check is a finding.
-- Verification (target): Inject exhaustion and confirm no partial object is published and nothing is released twice.
-- Exceptions: A fixed-size, statically initialized pool MAY be used when its bounded allocation, exhaustion, and reclamation semantics are recorded.
+- Rationale: Allocation latency, fragmentation, locks, and reclamation semantics are context-dependent; an operation that is legal in a task can deadlock from an interrupt.
+- Verification (agent): For each allocation and reclamation site, record every reachable execution context and compare it with the selected allocator contract. Pass when every reachable call is legal for its exact context, including callbacks and interrupt paths; artifact: allocation-context table, call graph, and allocator contract.
+- Verification (target): Using the `PROJECT_RULES.md` `allocator-context` configuration, invoke each allocation and reclamation path from every reachable context under production settings. Pass when no illegal-context call executes and every legal-context call returns without violating the allocator's documented context constraints in 100% of trials; artifact: context trace, allocator assertion log, and configuration snapshot.
+- Exceptions: A fixed-size, statically initialized pool MAY be used only when capacity, bounded allocation time, exhaustion result, reclamation owner, and review condition are recorded.
+
+Correct:
+
+```c
+void worker_task(void *argument)
+{
+    message_t *message = pool_alloc(); /* PROJECT_RULES allows this allocator in tasks. */
+
+    if (message != 0) {
+        message_release(message);
+    }
+    (void)argument;
+}
+```
+
+Incorrect:
+
+```c
+void timer_isr(void)
+{
+    (void)pool_alloc(); /* allocator is not documented as legal from interrupt context */
+}
+```
+
+### EMB-MEM-ALLOC-RESULT-001 [MUST]
+
+Every allocation MUST expose an explicit success or failure result that the caller checks
+before using, publishing, or transferring the allocated object.
+
+- Applies when: Calling a heap, pool, object factory, or wrapper that can exhaust or reject an allocation.
+- Rationale: An implicit or ignored exhaustion result turns a recoverable resource condition into a null dereference, invalid publication, or ownership ambiguity.
+- Verification (agent): Trace each allocation return value to its first dereference, publication, transfer, or release. Pass when the caller checks the documented result before every such use and maps failure to a defined branch; artifact: allocation-result table and control-flow report.
+- Verification (target): Using the `PROJECT_RULES.md` `allocator-result` configuration, force success, exhaustion, invalid-size, and rejected-context results at every allocation site. Pass when each result reaches the documented branch and no failed handle is dereferenced, published, or released in 100% of injections; artifact: allocator status trace, assertion log, and configuration snapshot.
+- Exceptions: A wrapper MAY encode success in a non-null handle only when the allocator contract, nullability, failure set, owner, and review condition are recorded.
+
+Correct:
+
+```c
+message_t *make_message(void)
+{
+    message_t *message = pool_alloc();
+
+    if (message == 0) {
+        return 0; /* explicit failure result is handled before use */
+    }
+    message_init(message);
+    return message;
+}
+```
+
+Incorrect:
+
+```c
+message_t *make_message(void)
+{
+    message_t *message = pool_alloc();
+
+    message->length = 0U; /* failed allocation is dereferenced without a check */
+    return message;
+}
+```
+
+### EMB-MEM-ALLOC-STATE-001 [MUST]
+
+When allocation fails, the caller MUST leave ownership and externally visible object state
+unchanged and MUST NOT dereference, publish, or release the failed result.
+
+- Applies when: Handling a null, exhausted, or error return from a heap, pool, object factory, or reclamation-related allocation path.
+- Rationale: A failed allocation has no object to initialize or transfer. Dereferencing, publishing, or releasing that result turns a recoverable resource condition into a fault, a stale-handle publication, or a double release.
+- Verification (agent): For each failure branch, compare pre-call ownership and externally visible state with the post-call state and inspect all uses of the returned handle. Pass when the failure branch has no dereference, publication, or release and all retained state is unchanged except documented diagnostics; artifact: failure-path table and control-flow report.
+- Verification (target): Using the `PROJECT_RULES.md` `allocator-failure` configuration, force exhaustion at every allocation site and inspect handles, ownership counters, and published queues. Pass when 100% of injected failures return the documented error, publish no invalid handle, perform no release, and preserve pre-call state; artifact: allocator trace, ownership counters, and configuration snapshot.
+- Exceptions: A diagnostic counter or event MAY change on failure only when it is explicitly outside the allocated object's ownership/state contract and its update is itself documented and bounded.
+
+Correct:
+
+```c
+#include <stdbool.h>
+
+typedef struct message message_t;
+extern message_t *pool_alloc(void);
+extern void message_init(message_t *message);
+
+bool make_message(message_t **out)
+{
+    if (out == 0) {
+        return false;
+    }
+
+    message_t *message = pool_alloc();
+    if (message == 0) {
+        return false; /* caller state and ownership stay unchanged */
+    }
+
+    message_init(message);
+    *out = message;  /* publish only after successful initialization */
+    return true;
+}
+```
+
+Incorrect:
+
+```c
+#include <stdbool.h>
+
+typedef struct message message_t;
+extern message_t *pool_alloc(void);
+extern void message_init(message_t *message);
+
+bool make_message(message_t **out)
+{
+    message_t *message = pool_alloc();
+
+    message_init(message); /* dereferences a failed allocation */
+    *out = message;        /* publishes an invalid handle on failure */
+    return true;
+}
+```
 
 ### EMB-MEM-LAYOUT-001 [MUST]
 
@@ -94,9 +254,23 @@ build-time check that proves it.
 
 - Applies when: Placing objects in RAM, nonvolatile memory, shared memory, DMA memory, bootloader regions, or retained sections.
 - Rationale: Incidental layout and compiler packing are not stable contracts and can silently break startup, persistence, or bus access.
-- Verification (agent): Confirm each object with a section, address, alignment, or retention requirement declares it through the project mechanism, and that a linker assertion or post-link check proves it. A requirement stated only in a comment is a finding.
-- Verification (target): Inspect the linker map and startup copy/zero tables for the target build, and confirm the assertion fires when the property is violated.
-- Exceptions: None for a property required by hardware or another image; a project MAY omit an attribute only when the checked linker contract already proves the property.
+- Verification (agent): For each layout-dependent object, match the declared section/address/alignment/retention property to a linker assertion or post-link check. Pass when the proof is machine-readable and a comment is not the sole evidence; artifact: linker script assertion and post-link report.
+- Verification (target): Using the `PROJECT_RULES.md` `memory-layout` configuration, inspect the target map and startup copy/zero tables, then run a negative build with the property intentionally violated. Pass when the assertion fails for the negative case and the valid image places the object as recorded; artifact: map, startup table, build log, and configuration snapshot.
+- Exceptions: No exception applies to a hardware/image-required property; an attribute MAY be omitted only when the checked linker contract proves it, with contract owner, scope, and review condition recorded.
+
+Correct:
+
+```c
+__attribute__((section(".dma"), aligned(32)))
+static struct dma_header descriptor;
+/* The linker script asserts the section, address, and alignment contract. */
+```
+
+Incorrect:
+
+```c
+static struct dma_header descriptor; /* placement and alignment have no build proof */
+```
 
 ## Module examples
 
@@ -106,25 +280,17 @@ See the larger [compliant](../../examples/EMB-MEM-LIFETIME-001/compliant.c) and
 Correct:
 
 ```c
-#include <stdint.h>
+struct dma_header {
+    uint32_t magic;
+    uint8_t payload[60];
+};
 
-static uint8_t rx_storage[64] = {0U};
-
-uint8_t *rx_buffer_acquire(void)
-{
-    return rx_storage; /* The static owner outlives every documented consumer. */
-}
+__attribute__((section(".dma"), aligned(32)))
+static struct dma_header descriptor;
 ```
 
 Incorrect:
 
 ```c
-#include <stdint.h>
-
-uint8_t *rx_buffer_acquire(void)
-{
-    uint8_t local_storage[64] = {0U};
-
-    return local_storage; /* The returned pointer outlives the local object. */
-}
+static struct dma_header descriptor; /* placement and alignment are incidental */
 ```

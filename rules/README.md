@@ -46,11 +46,23 @@ verification entirely. `CORE-CHG-VERIFY-001` governs how each half is reported.
 `Verification (agent):` must be an action, not a topic. Prefer naming the shape of the defect
 so the check has a decidable outcome — "a read-modify-write on a status register is a finding"
 rather than "review register accesses". Where the formatter or a compiler flag settles the rule
-completely, say so and name the flag; `None; the formatter does this` is a legitimate and
-useful value, because it tells a reviewer not to spend attention there.
+completely, say so and name the flag. Even when the target side is source-only, write an explicit
+explanation and pass criterion; bare `None` or `review` is rejected by the structure check.
 
 `Verification (target):` is where measurement, hardware behavior, and configuration-specific
 builds belong. It is not optional — it is deferred, and the change record has to say so.
+
+For each verification record, capture the boundary explicitly:
+
+```text
+Evidence: what was checked
+Owner: responsible reviewer or team
+Configuration: target, RTOS, compiler, linker, and relevant flags
+Expected: exact pass criterion or observable state
+Observed: actual result
+Artifact: command output, map, log, measurement, disassembly, or code location
+Outstanding: deferred work and its completion condition
+```
 
 ### Choosing MUST or SHOULD
 
@@ -68,9 +80,12 @@ Every cataloged module must contain at least one normative rule.
 Module status is one of three values:
 
 - `draft`: the rules are not written yet. Not loadable without `--allow-draft`.
-- `provisional`: the rules are complete and carry a `Correct:` example, an `Incorrect:`
-  example, and a paired external example directory, but no domain owner has reviewed them.
-  Loadable; must be reported as unreviewed rather than as safety coverage.
+- `provisional`: the structural/actionability contract is present and every `MUST` carries a
+  rule-level `Correct:`/`Incorrect:` pair, but target/domain-owner review may still be open in
+  the audit ledger. External examples are tiered evidence: representative high-risk rules
+  and rules that need compiler/executable proof have paired directories, while inline examples
+  cover the remaining rules. Loadable; must be reported as unreviewed rather than as safety
+  coverage.
 - `active`: reviewed by the responsible domain owner.
 
 Examples demonstrate a rule but do not substitute for that review, which is what separates

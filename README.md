@@ -59,7 +59,7 @@ Modules and profiles carry one of three statuses:
 | Status | Meaning | Installs by default |
 | --- | --- | --- |
 | `active` | Reviewed by a domain owner. | yes |
-| `provisional` | Rules complete and exemplified; not yet reviewed. | yes, labeled unreviewed |
+| `provisional` | Structural contract and examples are present; semantic/domain-owner review is pending. | yes, labeled unreviewed |
 | `draft` | Rules not written yet. | no, needs `--allow-draft` |
 
 All embedded, RTOS, architecture, and toolchain modules are currently `provisional`, which
@@ -91,25 +91,27 @@ npx @zhangsan0013/ai-coding-rules resolve \
 
 The resolver reports stable module IDs and status in deterministic order, and notes how many
 of them are provisional. A signal that selects a `draft` module fails unless `--allow-draft`
-is supplied.
+is supplied. `provisional` means the structure and evidence contract is present, not that a
+target-specific safety review has been completed.
 
 ## Verification tooling
 
-Several rules name a tool in their `Verification:` field. `templates/.clang-format` is the
+Several rules name a tool in their verification fields. `templates/.clang-format` is the
 formatter configuration for consuming projects; copy it to the project root and run:
 
 ```bash
 clang-format --dry-run --Werror src/counter.c
 ```
 
-It encodes only what the rules require: `C-STYLE-FORMAT-001`, `C-STYLE-BRACES-001`,
-`C-STYLE-SWITCH-001`, and `C-STYLE-POINTER-001`. It stays silent on anything the rules
-leave to review, such as declaration order, `sizeof` parentheses, and trailing commas in
-aggregate initializers. A configuration encoding requirements the rules do not state
-would be a second, hidden rule source.
+It encodes the formatter-backed boundaries named by the style rules and guidance:
+`C-STYLE-FORMAT-001`, `C-STYLE-BRACES-001`, `C-STYLE-SWITCHFMT-001`, and the pointer-layout
+guidance. It stays silent on anything the rules leave to review, such as declaration order,
+`sizeof` semantics, and trailing commas in aggregate initializers. A configuration encoding
+requirements the rules do not state would be a second, hidden rule source.
 
-No Doxygen, static analysis, or compiler configuration is bundled yet. Run the
-verification each rule names, and report the checks that were not run. The repository
+The repository does not bundle a consuming project's Doxygen, static-analysis, compiler,
+linker, or target configuration. Rules declare the action, artifact, and pass criterion;
+the consuming project must run those checks and record any unrun target work. The repository
 checks can be run together with:
 
 ```bash

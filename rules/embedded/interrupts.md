@@ -39,19 +39,13 @@ assuming a default; several rules below change behavior depending on it.
 ### EMB-ISR-BOUND-001 [MUST]
 
 An interrupt handler MUST call only operations the platform or project documents as callable
-from its exact interrupt context. Each MUST return without blocking, waiting for a
-scheduler-owned resource, or yielding, and MUST have defined failure, full, and overflow
-results.
-
-Passing a zero timeout to a task-context API MUST NOT be treated as proof of ISR safety; the
-platform's ISR variant MUST be used where one exists. A documented ISR-exit reschedule
-request is not a wait and MAY be issued as described in `EMB-ISR-SIGNAL-001`.
+from its exact interrupt context.
 
 - Applies when: Writing or reviewing a handler or anything reachable from it, including wrappers, callbacks, function-pointer targets, error paths, and RTOS adapters.
-- Rationale: A handler has no schedulable context to block in, so a blocking call deadlocks or extends interrupt latency without bound. An `ISR-safe` name alone proves nothing about blocking or overflow behavior.
-- Verification (agent): Enumerate the transitive call graph including indirect calls and error paths, and check each operation against the project's ISR-safe list. Flag any allocator, stdio, string, or blocking primitive, and any call whose entry is missing from the list.
-- Verification (target): Exercise every failure and saturation path on the target with the configured optimization level.
-- Exceptions: A primitive or wrapper MAY be used when its interrupt-context safety, non-blocking behavior, and failure semantics are recorded in `PROJECT_RULES.md`.
+- Rationale: Context legality is a property of the exact interrupt entry and runtime port. An `ISR-safe` name alone is not evidence that a call is legal in this exact context.
+- Verification (agent): Enumerate the transitive call graph including indirect calls and error paths, then match every operation to the ISR-safe list for the exact context. Pass when every reachable call is documented as callable from that context; artifact: call graph, ISR-safe table, and source locations.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-call-context` configuration with production optimization, exercise every reachable call under interrupt entry, nested interrupt, and error paths. Pass when every trace contains only operations listed as legal for the entered context in 100% of runs; artifact: trace log and configuration snapshot.
+- Exceptions: A primitive or wrapper MAY be used only when its exact context, failure semantics, owner, and review condition are recorded in `PROJECT_RULES.md`.
 
 Correct:
 
@@ -67,7 +61,41 @@ void uart_isr(void)
 {
     uint8_t byte = platform_uart_read_data_from_isr();
 
-    /* PROJECT_RULES lists both adapters as non-blocking and ISR-safe. */
+    /* PROJECT_RULES lists both adapters as legal for this exact ISR context. */
+    if (!platform_rx_try_put_from_isr(byte)) {
+        platform_record_rx_drop_from_isr();
+    }
+}
+```
+
+Incorrect:
+
+```c
+void uart_isr(void)
+{
+    uint8_t byte = platform_uart_read_data(); /* task-context entry is not documented for ISR use */
+    (void)platform_rx_try_put(byte);
+}
+```
+
+### EMB-ISR-NOWAIT-001 [MUST]
+
+Every operation reachable from an interrupt handler MUST return without blocking or waiting
+for a scheduler-owned resource.
+
+- Applies when: Writing or reviewing a handler or anything reachable from it, including wrappers, callbacks, function-pointer targets, error paths, and RTOS adapters.
+- Rationale: An interrupt has no schedulable context to block in, so a blocking call can deadlock or extend interrupt latency without bound even when its timeout is zero.
+- Verification (agent): Enumerate the transitive call graph and classify each reachable operation by whether it can wait for a scheduler-owned resource. Pass when no reachable path enters a wait, block, or scheduler-owned lock operation; artifact: wait-capability table, call graph, and source locations.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-no-wait` configuration, force resources unavailable, full, and contended at each interrupt call. Pass when every handler path returns without waiting, yielding, or acquiring a scheduler-owned resource in 100% of runs; artifact: scheduler trace and configuration snapshot.
+- Exceptions: A documented ISR-exit notification MAY touch scheduler state only when the platform explicitly defines it as a non-waiting interrupt operation, with owner and review condition recorded in `PROJECT_RULES.md`.
+
+Correct:
+
+```c
+void uart_isr(void)
+{
+    uint8_t byte = platform_uart_read_data_from_isr();
+
     if (!platform_rx_try_put_from_isr(byte)) {
         platform_record_rx_drop_from_isr();
     }
@@ -82,8 +110,74 @@ void uart_isr(void)
     uint8_t byte = UART0->DATA;
 
     printf("%c", byte);                             /* may take a stdio lock */
-    xSemaphoreTake(&rx_mutex, portMAX_DELAY);       /* waits for a task-owned resource */
-    xQueueSend(&rx_queue, &byte, portMAX_DELAY);    /* blocks with no schedulable context */
+    xSemaphoreTake(&rx_mutex, 0U);                   /* zero timeout does not make the wait ISR-safe */
+}
+```
+
+### EMB-ISR-API-001 [MUST]
+
+Where a platform provides an interrupt-specific entry point for an operation, interrupt
+code MUST use that entry point instead of the task-context variant.
+
+- Applies when: A platform, library, or RTOS exposes paired task-context and interrupt-context APIs.
+- Rationale: A zero timeout can avoid one wait branch while the task-context implementation still touches scheduler or locking state that is illegal from an interrupt.
+- Verification (agent): Inventory every paired API reachable from each handler and compare the selected symbol with the platform/port ISR API table. Pass when every available interrupt-specific operation uses its documented interrupt entry point; artifact: API-variant matrix, call graph, and source locations.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-api-variants` configuration, force each paired call through the production build and trigger success, full, and unavailable outcomes. Pass when the trace identifies only the documented interrupt entry point and no task-context implementation is entered in 100% of trials; artifact: symbol map, trace log, and configuration snapshot.
+- Exceptions: A task-context entry point MAY be used only when the platform documents that no interrupt-specific variant exists and the exact context, non-blocking proof, owner, and review condition are recorded in `PROJECT_RULES.md`.
+
+Correct:
+
+```c
+void dma_done_isr(void)
+{
+    BaseType_t woke = pdFALSE;
+
+    vTaskNotifyGiveFromISR(dma_task_handle, &woke);
+    portYIELD_FROM_ISR(woke);
+}
+```
+
+Incorrect:
+
+```c
+void dma_done_isr(void)
+{
+    xTaskNotifyGive(dma_task_handle); /* task-context variant is used from an ISR */
+}
+```
+
+### EMB-ISR-RESULT-001 [MUST]
+
+Each operation reachable from an interrupt handler MUST expose and handle its documented
+failure, full, or overflow result before the handler returns.
+
+- Applies when: An interrupt operation can reject data, encounter a full queue, overflow a counter, or report a hardware/service failure.
+- Rationale: An interrupt has no caller to propagate an ignored result; silently discarding a full or failure status converts a bounded resource condition into data loss without an observable owner decision.
+- Verification (agent): Map every fallible ISR call to its result set and inspect all handler exits. Pass when each failure, full, and overflow result reaches a documented counter, flag, drop/coalesce action, or owner notification before return; artifact: ISR result table, path report, and owner read locations.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-result` configuration, inject each documented failure, full, and overflow condition at least 100 times. Pass when the observed owner record and drop/coalesce behavior match the configured result policy for every injection; artifact: injected-result trace, owner log, and configuration snapshot.
+- Exceptions: A result MAY be intentionally ignored only when the platform documents it as impossible for the configured state and the proof, owner, and review condition are recorded in `PROJECT_RULES.md`.
+
+Correct:
+
+```c
+void uart_isr(void)
+{
+    uint8_t byte = platform_uart_read_data_from_isr();
+
+    if (!platform_rx_try_put_from_isr(byte)) {
+        platform_record_rx_drop_from_isr(); /* full result is observable */
+    }
+}
+```
+
+Incorrect:
+
+```c
+void uart_isr(void)
+{
+    uint8_t byte = platform_uart_read_data_from_isr();
+
+    (void)platform_rx_try_put_from_isr(byte); /* full result is discarded */
 }
 ```
 
@@ -95,9 +189,9 @@ disabled and no other context calls it.
 
 - Applies when: Calling library or project code from interrupt context.
 - Rationale: A handler that preempts the same function mid-update corrupts the state it owns, and the corruption surfaces far from its cause. `malloc`, `printf`, `strtok`, and `errno`-setting functions are the common cases.
-- Verification (agent): Check each called function against the toolchain and library re-entrancy documentation, then record the verdict in the project's ISR-safe call list.
-- Verification (target): None beyond `EMB-ISR-BOUND-001`; re-entrancy is a documentation property, not a measurement.
-- Exceptions: As stated in the rule: recorded re-entrancy, or recorded single-caller use with nesting disabled.
+- Verification (agent): Check each called function against toolchain/library re-entrancy documentation and record the verdict, state ownership, and nesting assumption in the ISR-safe call list. Pass when every mutable static/global state has a re-entrant proof or an exclusive caller; artifact: call list and documentation citations.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-reentrancy` configuration, validate the recorded re-entrancy/ownership contract as part of `EMB-ISR-BOUND-001`. Pass when the production call graph contains no undocumented mutable-state callee in 100% of reachable paths; artifact: reviewed call list and configuration snapshot.
+- Exceptions: Recorded re-entrancy or single-caller use with nesting disabled MAY be used only with owner, function scope, evidence, and re-enable/review condition recorded.
 
 Correct:
 
@@ -131,9 +225,9 @@ past the budget.
 
 - Applies when: Adding work to a handler, or changing a bound, clock, or wait-state setting that affects one.
 - Rationale: A handler runs with equal- and lower-priority interrupts masked. A latency claim cannot be reviewed from one loop at a time, because the total is what starves the rest of the system.
-- Verification (agent): Sum the recorded worst-case durations along the longest path and compare against the budget for that priority. Report any reachable operation with no recorded bound as a gap rather than assuming one.
-- Verification (target): Measure the handler on the target with the production clock, compiler options, and wait-state configuration, and confirm the measurement is inside the budget with the recorded margin.
-- Exceptions: A handler MAY exceed the budget when the affected lower-priority work is recorded as tolerating the delay.
+- Verification (agent): Sum recorded worst-case durations along the longest reachable path and compare with the priority budget. Pass when every operation has a finite bound and the total is at or below budget minus the recorded margin; artifact: path-duration table and margin calculation.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-latency` configuration with the production clock, compiler, and wait states, measure entry-to-exit duration. Pass when the maximum of the recorded sample set is no greater than the budget and the margin remains non-negative for every enabled vector; artifact: timing capture, map, and configuration snapshot.
+- Exceptions: A handler MAY exceed the nominal budget only when affected lower-priority work, tolerated maximum delay, owner, and review condition are recorded.
 
 Correct:
 
@@ -178,28 +272,17 @@ signal the owning context. Work that does not need interrupt context SHOULD run 
 
 - Applies when: A handler does more than capture, acknowledge, and signal.
 - Rationale: Every instruction in a handler delays all equal- and lower-priority work, so a short handler keeps the latency budget in `EMB-ISR-DURATION-001` reviewable as the system grows.
-- Verification (agent): Compare the handler against capture, acknowledge, and signal. Report filtering, formatting, floating-point work, and slow peripheral access as deferrable.
-- Verification (target): None beyond the duration measurement.
-- Exceptions: A handler MAY complete work in context when the project records that it meets its latency budget.
+- Verification (agent): Classify each handler operation as capture, acknowledge, signal, or deferrable work. Pass when all non-required work is moved out of the handler or has a documented budget justification; artifact: handler operation table and call graph.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-deferral` configuration, reuse the duration measurement from `EMB-ISR-DURATION-001`. Pass when the handler's measured duration and latency remain within the recorded budget after deferral for every enabled vector; artifact: timing capture, deferred-work trace, and configuration snapshot.
+- Exceptions: A handler MAY complete work in context only when owner, work item, measured duration, latency budget, and review condition are recorded.
 
 Correct:
 
 ```c
-#include <stdbool.h>
-#include <stdint.h>
-
-extern uint32_t platform_adc_read_result_from_isr(void);
-extern bool platform_adc_publish_from_isr(uint32_t sample);
-extern void platform_adc_record_drop_from_isr(void);
-
 void adc_isr(void)
 {
-    uint32_t sample = platform_adc_read_result_from_isr();
-
-    if (!platform_adc_publish_from_isr(sample)) {
-        platform_adc_record_drop_from_isr();
-    }
-    /* The publish primitive wakes the owning loop; filtering happens there. */
+    uint32_t sample = ADC0->RESULT;
+    (void)sample_queue_try_put_from_isr(sample); /* filtering is deferred */
 }
 ```
 
@@ -208,9 +291,8 @@ Incorrect:
 ```c
 void adc_isr(void)
 {
-    adc_sample = ADC0->RESULT;
-    apply_iir_filter(&filter, adc_sample);   /* float filtering in interrupt context */
-    update_display(adc_sample);              /* slow peripheral access in interrupt context */
+    uint32_t sample = ADC0->RESULT;
+    apply_filter_and_update_display(sample); /* deferrable work extends the handler */
 }
 ```
 
@@ -222,9 +304,9 @@ where the API defines one.
 
 - Applies when: A handler notifies a task, sets an event, or releases a synchronization object.
 - Rationale: The task-context variant may block and usually omits the scheduler interaction interrupt exit requires. It fails as a missed or late wake-up rather than as an error, which is why review has to catch it.
-- Verification (agent): Check each signalling call against the platform's ISR-safe list, and confirm the reschedule-request argument is both passed and acted on where the API defines one.
-- Verification (target): Confirm the owning context wakes for every event, including events arriving back to back.
-- Exceptions: A primitive MAY be used from both contexts when the platform documents a single entry point that is safe from both.
+- Verification (agent): Match each signalling call to the ISR-safe list and inspect all returns for the required reschedule argument and action. Pass when every API-defined wake flag reaches the ISR-exit yield path; artifact: call-site/control-flow report.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-signal` configuration, deliver isolated, back-to-back, and burst events to a higher-priority waiter. Pass when the owner wakes once per accepted event and, where required, runs before the next tick in 100% of accepted events; artifact: scheduler trace, event sequence log, and configuration snapshot.
+- Exceptions: A primitive MAY be used from both contexts only when the exact entry point, wake semantics, owner, and review condition are documented.
 
 Correct:
 
@@ -250,20 +332,18 @@ void dma_done_isr(void)
 ### EMB-ISR-SHARED-001 [MUST]
 
 State shared between a handler and another context MUST use a synchronization model whose
-primitives are callable from interrupt context, and MUST define what happens when the
-handler cannot deliver: whether the event is dropped, coalesced, or overwritten. `volatile`
-alone MUST NOT be used to synchronize ordinary RAM.
+primitives are callable from interrupt context. `volatile` alone MUST NOT be used to
+synchronize ordinary RAM.
 
 `EMB-CONC-RACE-001` and `EMB-CONC-PUBLISH-001` define the protocol and the visibility edge.
-This rule adds the two constraints the interrupt boundary imposes on them: the primitives
-must be ISR-callable, and because a handler cannot block or retry, full-buffer behavior is
-part of the interface rather than an error the handler can defer.
+This rule adds the constraint the interrupt boundary imposes on them: the primitives must be
+ISR-callable.
 
 - Applies when: Declaring or accessing a message, queue, snapshot, counter, or flag shared between interrupt and non-interrupt code.
-- Rationale: `volatile` makes an access visible but does not make a read-modify-write atomic, establish a happens-before edge, or make several atomic fields one consistent update. A handler that has nowhere to put an event will silently lose it unless the loss is designed.
-- Verification (agent): For each shared object, list every reader and writer, name the model, and confirm its primitives appear on the ISR-safe list and its atomic width and alignment are supported. Confirm the full, empty, and overflow behavior is stated at the interface.
-- Verification (target): Test full, empty, overflow, and back-to-back events under the target memory model, and confirm the recorded loss policy is what actually happens.
-- Exceptions: `volatile` MAY be retained for MMIO, where it is required for a different reason. Another platform-supported model MAY be used when its ownership, ordering, atomicity, and failure behavior are recorded in `PROJECT_RULES.md`.
+- Rationale: `volatile` makes an access visible but does not make a read-modify-write atomic, establish a happens-before edge, or make several atomic fields one consistent update.
+- Verification (agent): For each shared object, list all readers/writers, synchronization model, and the ISR-safe primitive used at every access. Pass when every cross-context access is covered by one documented ISR-callable atomic, lock-free, critical-section, queue, or snapshot protocol and no `volatile`-only handoff remains; artifact: shared-state matrix, primitive table, and source scan.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-shared-state` configuration, exercise concurrent handler and consumer access under the target memory model for at least 100 handoffs. Pass when no torn or out-of-protocol snapshot is observed in 100% of runs; artifact: event sequence trace, synchronization assertions, and configuration snapshot.
+- Exceptions: `volatile` MAY be retained for MMIO only when the field is documented as MMIO. Another model MAY be used only with owner, ordering, atomicity, failure policy, and review condition recorded in `PROJECT_RULES.md`.
 
 Usual models: ownership transfer through an SPSC buffer or mailbox, an ISR-safe atomic flag
 or counter, a bounded critical section, an RTOS ISR primitive, or a double-buffered snapshot.
@@ -357,6 +437,31 @@ bool sample_read(uint32_t *sample, uint32_t *timestamp)
 }
 ```
 
+### EMB-ISR-SHARED-002 [MUST]
+
+An interrupt-to-context handoff MUST define and implement one observable policy for a full,
+empty, overflow, or otherwise undeliverable event: drop, coalesce, or overwrite.
+
+- Applies when: A handler can produce an event faster than the receiving queue, ring, mailbox, or snapshot can accept it.
+- Rationale: A handler cannot block or retry indefinitely, so an unrecorded full condition silently loses or corrupts data and leaves the owner unable to distinguish loss from inactivity.
+- Verification (agent): Identify the capacity boundary and the configured loss policy for each handoff. Pass when every rejected or superseded event follows exactly one documented drop, coalescing, or overwrite branch and records any required loss indicator; artifact: capacity/state table, result-path report, and owner contract.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-event-policy` configuration, inject empty, full, overflow, and back-to-back traffic for at least 100 events per boundary. Pass when the observed accepted, dropped, coalesced, and overwritten counts equal the configured policy and all required loss indicators are present; artifact: event trace, counter log, and configuration snapshot.
+- Exceptions: A lossless policy MAY be claimed only when the target capacity and producer-rate bound prove no overflow for the configured operating envelope, with owner, calculation, and review condition recorded.
+
+Correct:
+
+```c
+if (!sample_queue_try_put_from_isr(sample)) {
+    platform_record_sample_drop_from_isr(); /* policy: drop newest */
+}
+```
+
+Incorrect:
+
+```c
+(void)sample_queue_try_put_from_isr(sample); /* full result and loss policy disappear */
+```
+
 A larger pair of examples is in
 [examples/EMB-ISR-SHARED-001](../../examples/EMB-ISR-SHARED-001/).
 
@@ -364,14 +469,13 @@ A larger pair of examples is in
 
 When two handlers, or a handler and a critical section, can touch the same object or
 peripheral while nesting is enabled, the chosen mask or ownership model MUST cover every
-accessor including the highest-priority one, and the project MUST record the priority
-encoding and mask semantics it relies on.
+conflicting accessor, including the highest-priority one.
 
 - Applies when: Two or more contexts touch the same object or peripheral and at least one is a handler that can be preempted.
-- Rationale: Priority numbering and mask thresholds differ between targets, and "mask at the highest priority" is not portable. A mask that covers only the current and lower priorities lets a conflicting higher-priority handler observe a half-updated object.
-- Verification (agent): For each shared object, list every handler and critical section that touches it with its logical priority and the target's numeric encoding, then confirm the chosen adapter is documented as covering all of them.
-- Verification (target): Force the highest-priority conflicting context to fire during the protected operation.
-- Exceptions: A project MAY disable nesting and use a global mask, or use a lock-free model where the platform cannot mask a higher-priority handler, when the configuration and its latency bound are recorded.
+- Rationale: A mask that covers only the current and lower priorities lets a conflicting higher-priority handler observe a half-updated object or peripheral command.
+- Verification (agent): For each shared object or peripheral, list every handler and critical section and compare the selected mask or ownership adapter with all accessors. Pass when the selected model covers every conflicting accessor; artifact: accessor/mask matrix and adapter contract.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-nesting` configuration, trigger each conflicting context during the protected operation. Pass when no partial update or peripheral command is observed and the saved mask state is restored in 100% of trials; artifact: nested-interrupt trace, state assertions, and configuration snapshot.
+- Exceptions: Disabling nesting, using a global mask, or using a lock-free model MAY be used only when configuration, covered accessors, latency bound, owner, and review condition are recorded.
 
 Correct:
 
@@ -411,6 +515,30 @@ void uart_rx_isr(void)
 }
 ```
 
+### EMB-ISR-NESTING-002 [MUST]
+
+The project MUST record the target's interrupt-priority encoding and mask or threshold
+semantics used to establish the nesting coverage of each protected object or peripheral.
+
+- Applies when: Configuring interrupt priorities, mask thresholds, priority ceilings, or ownership adapters for nested handlers.
+- Rationale: Targets differ in whether a lower number means higher priority and in whether a mask value is a ceiling, threshold, or bit mask; an unrecorded interpretation cannot prove coverage.
+- Verification (agent): Compare the configured logical priorities and encoded values with the target port definition and the mask primitive's documented semantics. Pass when every nesting proof cites the encoding, threshold direction, and covered priority set; artifact: priority-encoding table, port definition, and nesting proof.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-priority-encoding` configuration, program the lowest and highest covered priorities plus the first uncovered priority. Pass when the covered cases are blocked during the protected interval and the first uncovered case is observed only where the ownership model permits it, with zero encoding mismatches in 100% of trials; artifact: interrupt-controller trace, register dump, and configuration snapshot.
+- Exceptions: A generated priority adapter MAY hide the encoding only when its version, generated table, mask semantics, owner, and review condition are recorded.
+
+Correct:
+
+```text
+Target: Cortex-M, 3 priority bits, 0 = highest logical priority.
+Mask: BASEPRI=5 blocks encoded priorities 5..7; UART_RX=6 and SPI_TX=7 are covered.
+```
+
+Incorrect:
+
+```text
+UART_RX priority 6 is "high enough"; no target encoding or BASEPRI threshold is recorded.
+```
+
 ### EMB-ISR-CLEAR-001 [MUST]
 
 A handler MUST acknowledge its interrupt source at the point the hardware requires and
@@ -418,9 +546,9 @@ before returning, and the project MUST record that point for each vector.
 
 - Applies when: Writing or changing a handler that acknowledges a peripheral or controller interrupt.
 - Rationale: Acknowledging before the hardware latches the event loses it; acknowledging late or not at all re-enters the handler immediately and starves everything below it.
-- Verification (agent): Confirm each handler's acknowledge sequence matches the point recorded for that vector, and that a handler with an early return acknowledges on that path too.
-- Verification (target): Check the sequence against the reference manual and errata, then test back-to-back events.
-- Exceptions: A handler MAY defer the acknowledge when the hardware documents a level-sensitive or shared-source scheme requiring it and the scheme is recorded.
+- Verification (agent): Match each handler's acknowledge sequence and every early-return path to the vector's recorded hardware point. Pass when all exits acknowledge exactly once or follow the documented shared-source protocol; artifact: handler path report and vector table.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-acknowledge` configuration, test back-to-back and pending events against the reference manual/errata sequence. Pass when each event is serviced once and no immediate re-entry or lost event occurs in 100% of trials; artifact: interrupt trace, register log, and configuration snapshot.
+- Exceptions: A handler MAY defer acknowledge only when the hardware's level-sensitive/shared-source requirement, owner, sequence, and review condition are recorded.
 
 Correct:
 
@@ -450,9 +578,9 @@ touches is initialized, and any pending flag left by configuration is cleared.
 
 - Applies when: Initializing a peripheral, installing a handler, or re-enabling an interrupt after reconfiguration.
 - Rationale: Enabling first lets the handler run against uninitialized state or a stale pending flag, producing a fault whose cause is gone before anyone can observe it.
-- Verification (agent): Read the initialization sequence and confirm the enable write is last, after handler installation, state initialization, and the pending-flag clear.
-- Verification (target): Compare against the bring-up sequence in the reference manual and cold-start with the line already asserted.
-- Exceptions: An interrupt MAY be enabled earlier when the hardware documents that no pending flag can be set before configuration completes.
+- Verification (agent): Inspect the initialization control-flow and prove handler installation, state initialization, and pending clear dominate every enable write. Pass when enable is last on every path; artifact: initialization path report and register-write order.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-enable-order` configuration, cold-start with the source already asserted and compare the sequence with the manual/errata. Pass when no handler runs before initialization and the first asserted event is handled once in 100% of boots; artifact: boot/interrupt trace and configuration snapshot.
+- Exceptions: An interrupt MAY be enabled earlier only when the hardware clause proves no pending flag can arise, with vector, owner, citation, and review condition recorded.
 
 Correct:
 
@@ -489,9 +617,9 @@ than spinning or returning silently.
 
 - Applies when: Populating or changing a vector table, or writing the shared default handler.
 - Rationale: A vector that returns without acknowledging re-enters forever, and one that spins hangs the system. Either turns a configuration mistake into a symptom that looks nothing like its cause.
-- Verification (agent): Compare the vector table against the enabled-interrupt list, and confirm the default handler both records the event and clears the pending state.
-- Verification (target): Force each unexpected source and confirm the recorded event appears.
-- Exceptions: A vector the project records as permanently disabled MAY rely on the shared default handler alone.
+- Verification (agent): Compare every hardware-takeable vector with the table and inspect the default path for event recording plus defined pending-state handling. Pass when no vector is unresolved and no default path spins/returns silently; artifact: vector inventory and handler report.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-vector-default` configuration, force each unexpected source. Pass when one record appears for the source and the controller leaves the documented idle/disabled state without repeated entry in 100% of injections; artifact: fault log, controller trace, and configuration snapshot.
+- Exceptions: A permanently disabled vector MAY rely on the shared default handler only when disable state, owner, and review condition are recorded.
 
 Correct:
 
@@ -522,9 +650,9 @@ MUST NOT discard it because there is no caller to return it to.
 
 - Applies when: A handler detects an overrun, a parity or framing error, or any unexpected hardware state.
 - Rationale: A handler has no caller, so an early `return` on an error path is not propagation — it is silent data corruption in whatever stream the peripheral feeds.
-- Verification (agent): Check each error branch for a counter, flag, or status field the owner reads. A branch that only returns is a finding.
-- Verification (target): Inject each error condition and confirm the owning context observes it.
-- Exceptions: A condition the hardware documents as benign MAY be ignored when that reading is recorded.
+- Verification (agent): Map each handler error branch to a counter, flag, or status field read by the owner. Pass when no detected error terminates only with a bare return; artifact: error-path table and owner read locations.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-error-reporting` configuration, inject each documented error condition. Pass when the owner observes exactly one corresponding error record and recovery follows the documented path in 100% of injections; artifact: injected-error trace, owner log, and configuration snapshot.
+- Exceptions: A hardware-documented benign condition MAY be ignored only with citation, scope, owner, and review condition recorded.
 
 Correct:
 
@@ -561,9 +689,9 @@ longest critical section that can delay it recorded in `PROJECT_RULES.md`.
 
 - Applies when: Assigning or changing an interrupt priority, or adding a critical section that masks one.
 - Rationale: Worst-case latency cannot be reviewed from a handler alone. It depends on every priority above it and every section that masks it, so the table is the only place the interaction is visible.
-- Verification (agent): Compare the recorded table against the handlers and critical sections in the change, and report a new vector or masking section that the table does not mention.
-- Verification (target): Measure the worst case where a method exists.
-- Exceptions: A project MAY defer the table while the interrupt set is still unstable, when the gap and its owner are recorded.
+- Verification (agent): Compare the priority/duration/masking table with every changed vector and critical section. Pass when no new accessor or masking interval is omitted; artifact: table diff and source report.
+- Verification (target): Using the `PROJECT_RULES.md` `isr-priority-budget` configuration, measure worst-case latency for every enabled interrupt and masking section. Pass when every measured value is below its recorded budget and no enabled item remains unmeasured; artifact: timing capture, priority table, and configuration snapshot.
+- Exceptions: The table MAY be deferred only while the interrupt set is unstable and the gap has an owner, completion condition, and review date recorded.
 
 Correct:
 
@@ -578,4 +706,3 @@ Incorrect:
 ```text
 Priorities were assigned as the code was written; no durations or sections were recorded.
 ```
-

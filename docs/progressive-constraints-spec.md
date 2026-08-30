@@ -1,8 +1,9 @@
 # Progressive Constraints Specification
 
-Status: complete for Phases 0-3; Phase 4 implementation complete, domain review pending
+Status: implementation through Phase 5.8 complete; domain-owner review pending
 
-Baseline commit: `effe308`
+Original baseline commit: `effe308`
+Current actionability baseline: `a0d6eba`
 
 ## Problem
 
@@ -185,8 +186,8 @@ no consumer reads.
 | 1. Installation integrity | done | `src/cli.js`, `profiles/bare-metal-c11.md`, `README.md`, and `test/cli.test.js` updated. `npm test` passed 6/6; `pwsh -File checks/check-structure.ps1` passed. Draft profiles require `--allow-draft`, and profile-changing updates synchronize `PROJECT_RULES.md`. |
 | 2. Deterministic routing | done | Added `rules/catalog.json`, `src/rule-catalog.js`, resolver CLI output, and catalog routing documentation. `node bin/ai-coding-rules.js resolve --profile bare-metal-c11` returned a stable four-module baseline; explicit signals and draft failure behavior were also verified. |
 | 3. Verification and CI | done | Added catalog resolver tests, catalog-aware structure validation, `npm run check:structure`, and `.github/workflows/validate.yml`. Local `npm test` passed 11/11 and the structure check passed; hosted CI execution remains unverified in this session. |
-| 4. Domain coverage | implementation complete; review pending | All 13 draft modules now contain normative rules with stable IDs and required metadata: the interrupt module has 14 existing rules, and the other 12 modules add 61 rules across memory, MMIO, concurrency, DMA/cache, timeout/error handling, RTOS common and adapters, Arm, RISC-V, and GCC. Every draft module has inline compliant/violating examples and at least one linked paired external example; 14 external example directories are checked. The [domain review register](domain-coverage-review.md) records the remaining owner gates. All draft modules remain draft because domain-owner review is still required, so draft profile and signal resolution still fails closed without `--allow-draft`. |
-| Final verification | done locally; hosted review pending | `npm test` passed 14/14; `npm run check:structure` passed with 36 Markdown files and 114 normative rules; `npm run check:examples` passed all 14 paired directories and GCC C11 syntax checks; `git diff --check` passed. Hosted CI execution and domain-owner review remain unverified in this session. |
+| 4. Domain coverage | implementation complete; review pending | The embedded, RTOS, architecture, and GCC modules now contain 171 normative rules with stable IDs and required metadata. Their inline examples and representative external fixtures are checked, while domain-owner target review remains open in the [domain review register](domain-coverage-review.md). |
+| Final verification | superseded by Phase 5.8 | The older 114-rule snapshot is retained as historical evidence; the current command results are recorded in Phase 5.8. |
 | 5.1 Status model unlocked | done | Added the `provisional` status to `src/rule-catalog.js`, `src/cli.js`, `checks/check-structure.ps1`, and `checks/check-examples.ps1`; moved 13 modules and 5 profiles onto it; added `embedded.memory` to the `embedded-c11` baseline and `embedded.register-access` to `bare-metal-c11`. A default `init` now delivers 6 modules instead of 4. Profile-to-module status comparison is by review rank, so a profile cannot reference a less-reviewed module. `npm test` passed 16/16; both checks passed. |
 | 5.2 Deduplication | done | Merged `EMB-ISR-MASK-001` into `EMB-CONC-CRITICAL-001` (example dir renamed) and `EMB-ISR-STACK-001` into `EMB-MEM-STACK-001`; narrowed `EMB-ISR-DURATION-001` to latency-budget composition and `EMB-ISR-SHARED-001` to the interrupt-boundary delta; rewrote the three RTOS vendor modules as thin bindings to `rtos.common`, dropping 8 restated rules. 114 → 105 normative rules. |
 | 5.3 Strength recalibration | done | Split formatting from correctness across `c11/style.md`, `c11/naming.md`, `c11/public-interface.md`, `c11/preprocessor.md`: formatting rules became SHOULD pointing at the formatter (`C-STYLE-SWITCHFMT-001` split out of `SWITCH-001`, `C-NAME-RESERVED-001` split out of `SNAKE-001`), while `C-STYLE-INCREMENT-001` rose to MUST as undefined behavior. Embedded/RTOS/architecture/toolchain modules stayed MUST after review; each names corruption, a hang, or data loss rather than a preference. `templates/.clang-format` comments updated. MUST is 90 of 108, not the ~40 first estimated. |
@@ -194,6 +195,19 @@ no consumer reads.
 | 5.5 Verification split | done | Split every rule's `Verification:` into `Verification (agent):` (readable/toolchain, must run) and `Verification (target):` (hardware/measurement, deferred and recorded). `CORE-CHG-VERIFY-001` rewritten to govern the two; `rules/README.md` documents the format and the MUST/SHOULD test; `checks/check-structure.ps1` now requires both fields. |
 | 5.6 Coverage gaps | done | Added `c11.arithmetic` (promotion, shift, signed/unsigned conversion, signed overflow), `embedded.representation` (wire byte order, unaligned access, fixed-width fields vs bit-fields), and `embedded.startup` (`.data`/`.bss` readiness, progress-gated watchdog, bring-up ordering). Two new signals (`arithmetic`, `representation`, `startup`); `embedded.startup` joins the `bare-metal-c11` baseline. Three new paired example directories. 105 → 118 rules. |
 | 5.7 Routing unified | done | Added a signal-derivation table to `rules/INDEX.md` mapping what a change touches to the signal and module, covering all areas including the three new ones. The catalog step in the managed AGENTS.md block is retained; the table closes the gap between knowing an area and knowing its signal name. |
+| 5.8 Actionability contract | implementation complete; domain-owner review pending | Added the rule actionability design, rule-level `Correct:`/`Incorrect:` requirements for every retained `MUST`, explicit verification artifact/pass criteria, non-placeholder structure gates, a cross-platform Node contract test, and the [rule audit ledger](rule-audit-ledger.md). Current inventory is 171 rules (163 `MUST`, 8 `SHOULD`, 0 `MAY`) across 22 modules; all 171 are `contract-pass` after compound rules were split or narrowed. Local validation is recorded in the final verification section below. |
+
+### Current verification snapshot
+
+The current tree has 40 Markdown files, 171 normative rules, and 17 representative paired
+external example directories. `npm test`, the PowerShell structure check, the external example
+check, and `git diff --check` must be rerun after any rule or ledger change. Hosted CI, target
+hardware measurements, target RTOS/ABI checks, and domain-owner sign-off remain outstanding.
+
+Local verification on 2026-08-30: `npm test` passed 20/20 tests; `npm run check:structure`
+passed with 40 Markdown files and 171 rules; `npm run check:examples` passed all 17 paired
+directories with GCC (including the expected lifetime violation warning); and `git diff --check`
+reported no whitespace errors (only Git's LF-to-CRLF advisory for the working tree).
 
 ## Change record format
 

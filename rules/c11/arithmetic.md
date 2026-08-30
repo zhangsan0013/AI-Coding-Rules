@@ -28,8 +28,8 @@ explicitly.
 
 - Applies when: Performing arithmetic or bit manipulation on `uint8_t`, `uint16_t`, `int8_t`, `int16_t`, a bit-field, or a plain `char`.
 - Rationale: The integer promotions convert every such operand to `int`. `uint8_t a = 200, b = 100; uint8_t sum = a + b;` computes 300 in `int` and then truncates to 44 — no diagnostic, and the declared type suggests the wrap was intended. In the other direction, `uint16_t crc = (crc << 8) ^ poly` promotes `crc` to `int`, shifts bits above 16 that the narrow type would have discarded, and folds them back in on assignment.
-- Verification (agent): For each arithmetic or shift expression on a narrow type, decide whether the intermediate result can leave the operand's range. Where it can, require an explicit cast to the intended width, or an accumulator declared at least as wide as the intermediate. An expression relying on the assignment back to a narrow type for truncation is a finding unless the truncation is commented as intended.
-- Verification (target): Build with `-Wconversion` and confirm each remaining narrowing is deliberate.
+- Verification (agent): Check: inspect each arithmetic or shift expression whose operand is narrower than `int`; artifact: promotion/narrowing review table; pass: every width-sensitive intermediate has an explicit conversion or a sufficiently wide accumulator, and any intentional narrowing is documented at the conversion site.
+- Verification (target): Check: build with `-Wconversion -Wsign-conversion` and exercise boundary operands; artifact: compiler log plus boundary test log; pass: no unintended narrowing diagnostic occurs and each remaining conversion matches the documented result.
 - Exceptions: An expression whose intermediate result provably stays inside the operand's range needs no cast.
 
 Correct:
@@ -66,31 +66,27 @@ uint8_t saturating_add_u8(uint8_t a, uint8_t b)
 
 ### C-ARITH-SHIFT-001 [MUST]
 
-A shift operand MUST be unsigned, and the shift count MUST be less than the width of the
-promoted operand. A bit mask constant intended to reach the top bit MUST carry an unsigned
-suffix.
+A shift count MUST be less than the width of the promoted left operand. A variable shift
+count MUST be range checked before the shift executes.
 
 - Applies when: Writing `<<` or `>>`, or building a mask with `1 << n`.
-- Rationale: `1 << 31` shifts into the sign bit of a signed `int`, which is undefined behavior; the constant must be `1u << 31`. Register masks are where this appears most, and it usually works until the optimization level changes. Right-shifting a negative value is implementation-defined, so a sign-extending shift is not portable. A count at or above the operand width is undefined regardless of sign, which is why `1u << 32` on a 32-bit `int` is not zero but anything.
-- Verification (agent): Check each shift for an unsigned left operand and a count below the promoted width. `1 <<` reaching bit 31 or above is a finding; so is a right shift of a signed value, and a variable count with no bound on it.
-- Verification (target): Build with `-Wshift-count-overflow -Wshift-negative-value`, and at the project optimization level, where the compiler may exploit the undefined case.
-- Exceptions: An arithmetic right shift MAY be used where the project records that the toolchain defines it as sign-extending.
+- Rationale: A count at or above the promoted operand width is undefined behavior, so `1u << 32` on a 32-bit operand is not a portable zero. The declared storage width does not change the promoted width used by the operator.
+- Verification (agent): Check: inspect every variable and constant shift count and record the promoted left-operand width; artifact: shift-count table with bounds and source locations; pass: every count is less than the promoted width and every variable count is checked before the shift.
+- Verification (target): Check: build with `-Wshift-count-overflow -Wshift-negative-value -Werror` at the project optimization level and exercise zero, width-minus-one, width, and width-plus-one counts; artifact: compiler log and shift boundary test log; pass: no shift-count diagnostic occurs and out-of-range counts are rejected or handled by the documented guard.
+- Exceptions: A target-specific shift primitive MAY accept a wider count only when its API contract defines the masking or rejection behavior and that contract is recorded.
 
 Correct:
 
 ```c
 #include <stdint.h>
 
-#define UART_CR_ENABLE (1UL << 31)   /* unsigned: no shift into a sign bit */
-
 static uint32_t field_mask(unsigned width, unsigned shift)
 {
-    /* Both counts are bounded before use. */
     if ((width == 0U) || (width > 32U) || (shift >= 32U) || ((shift + width) > 32U)) {
         return 0U;
     }
 
-    return (width == 32U) ? 0xFFFFFFFFUL : (((1UL << width) - 1UL) << shift);
+    return (width == 32U) ? UINT32_MAX : (((UINT32_C(1) << width) - UINT32_C(1)) << shift);
 }
 ```
 
@@ -108,6 +104,66 @@ static uint32_t field_mask(unsigned width, unsigned shift)
 }
 ```
 
+### C-ARITH-SHIFT-SIGN-001 [MUST]
+
+A shift expression MUST NOT rely on implementation-defined sign extension: a right shift
+of a potentially negative value MUST be rejected, normalized, or explicitly documented for
+the target toolchain.
+
+- Applies when: Right-shifting signed values or using a signed value as the left operand of a bit-pattern shift.
+- Rationale: Right-shifting a negative signed value is implementation-defined, and a signed left operand can make a bit-pattern operation depend on the sign representation rather than the intended mask semantics.
+- Verification (agent): Check: inspect every shift whose operand has a signed type or can contain a negative value; artifact: shift-signedness table and source locations; pass: each case rejects/normalizes negative values or cites the target-defined semantics before use.
+- Verification (target): Check: compile with `-Wshift-negative-value -Werror` and exercise negative, zero, and maximum signed operands; artifact: compiler log and signed-shift boundary test log; pass: no undocumented sign extension is observed and every negative case follows the recorded result or rejection.
+- Exceptions: A signed shift MAY be used when the project records the toolchain's defined sign-extension behavior, the affected width, and the review condition.
+
+Correct:
+
+```c
+#include <stdint.h>
+
+static uint32_t logical_shift_right(int32_t value, unsigned count)
+{
+    if (count >= 32U) {
+        return 0U;
+    }
+    return (uint32_t)value >> count; /* normalize to unsigned before shifting */
+}
+```
+
+Incorrect:
+
+```c
+static int32_t logical_shift_right(int32_t value, unsigned count)
+{
+    return value >> count; /* negative values may sign-extend by implementation choice */
+}
+```
+
+### C-ARITH-SHIFT-MASK-001 [MUST]
+
+A mask constant intended to set or test a top bit MUST use an unsigned constant with a
+width at least as large as the destination field.
+
+- Applies when: Defining register, protocol, or bit-field masks with a shift or hexadecimal constant.
+- Rationale: `1 << 31` shifts a signed `int` into its sign bit, while a mask whose type is narrower than the destination can lose the intended bit before assignment.
+- Verification (agent): Check: inspect each top-bit mask and record its destination width and constant type; artifact: mask-width table and source locations; pass: every mask uses an unsigned constant whose width covers the destination field.
+- Verification (target): Check: compile with `-Wshift-overflow -Wsign-conversion -Werror` and read/write each masked top-bit field; artifact: compiler log and register-mask boundary test log; pass: no signed-shift diagnostic occurs and the observed mask sets only the documented destination bit.
+- Exceptions: A generated mask MAY use a signed literal only when the generator's type and width proof is recorded and the generated output is checked.
+
+Correct:
+
+```c
+#include <stdint.h>
+
+#define UART_CR_ENABLE (UINT32_C(1) << 31)
+```
+
+Incorrect:
+
+```c
+#define UART_CR_ENABLE (1 << 31) /* signed int shift reaches the sign bit */
+```
+
 ### C-ARITH-CONVERT-001 [MUST]
 
 A comparison or assignment between a signed and an unsigned operand MUST NOT rely on the
@@ -116,8 +172,8 @@ brought to one signedness explicitly.
 
 - Applies when: Comparing against a `size_t`, a length, a `sizeof` result, or any unsigned value; assigning between signed and unsigned types.
 - Rationale: The usual arithmetic conversions convert the signed operand to unsigned, so a negative value becomes a very large one. `int i = -1; if (i < buffer_len)` is true for every `buffer_len`, because `-1` converts to `SIZE_MAX`. This is the standard mechanism behind a bounds check that passes and then indexes out of range.
-- Verification (agent): Find each comparison mixing signedness and confirm the signed side cannot be negative at that point, or that the check rejects negatives first. A loop counter declared `int` compared against a `size_t` length is a finding.
-- Verification (target): Build with `-Wsign-compare -Wsign-conversion`.
+- Verification (agent): Check: inspect each comparison or assignment crossing signedness and trace the signed operand's range check; artifact: signedness-conversion table; pass: a signed value is rejected before conversion when negative, or both operands are explicitly converted to the intended signedness, with no implicit range change.
+- Verification (target): Check: build with `-Wsign-compare -Wsign-conversion -Werror` and run negative, zero, and maximum-value cases; artifact: compiler log and conversion boundary test log; pass: no unintended signedness diagnostic occurs and each boundary comparison/assignment matches the documented result.
 - Exceptions: A comparison where the signed operand is a literal or is provably non-negative needs no separate check.
 
 Correct:
@@ -143,12 +199,12 @@ Incorrect:
 ```c
 bool read_at(const uint8_t *buffer, size_t length, int index, uint8_t *out)
 {
-    if (index >= length) {   /* index converts to unsigned: -1 becomes SIZE_MAX... */
-        return false;        /* ...so this rejects it, but -1 < length would not */
+    size_t offset = (size_t)index; /* -1 becomes SIZE_MAX without a prior range check */
+    if (offset < length) {
+        *out = buffer[offset];
+        return true;
     }
-
-    *out = buffer[index];    /* and any other negative index reads out of range */
-    return true;
+    return false;
 }
 ```
 
@@ -159,8 +215,8 @@ its operands beforehand. The result MUST NOT be tested afterwards to detect it.
 
 - Applies when: Adding, subtracting, multiplying, or negating signed values derived from input, a sensor, a counter, or a protocol field.
 - Rationale: Signed overflow is undefined behavior, and the optimizer is entitled to assume it cannot happen. That makes the after-the-fact test unreliable in a specific way: `if (a + b < a)` is a test the compiler may delete outright, because it can only be true if overflow occurred, which it assumes it did not. Unsigned overflow is defined as wrapping and MAY be tested afterwards.
-- Verification (agent): For each signed operation on values not provably bounded, confirm the check precedes the operation and is expressed against the type's limits from `<limits.h>`. A post-hoc comparison of the result against an operand is a finding.
-- Verification (target): Build with `-fsanitize=signed-integer-overflow` where the target supports it, or `-ftrapv` for a debug build, and exercise the boundary inputs.
+- Verification (agent): Check: inspect every signed add, subtract, multiply, and negate fed by non-constant input; artifact: overflow-precondition table; pass: each operation is preceded by a limit check using the correct `<limits.h>` bound, and no post-operation result comparison is used as the overflow detector.
+- Verification (target): Check: build with `-fsanitize=signed-integer-overflow` or `-ftrapv` and exercise `MIN`, `MIN+1`, `MAX-1`, and `MAX` boundaries; artifact: sanitizer/trap log and boundary test log; pass: invalid operations are rejected before execution and valid operations complete without an overflow report.
 - Exceptions: Unsigned arithmetic MAY rely on defined wrapping when the wrap is intended and commented, as in a tick counter difference.
 
 Correct:

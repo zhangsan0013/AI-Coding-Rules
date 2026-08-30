@@ -31,14 +31,13 @@ bounds are in that module and are not restated here.
 ### RTOS-FREERTOS-ISR-001 [MUST]
 
 Interrupt-context code MUST call the `...FromISR` variant of a FreeRTOS service, MUST pass a
-`BaseType_t` woken flag where the API takes one, and MUST hand that flag to
-`portYIELD_FROM_ISR` before returning.
+`BaseType_t` woken flag where the API takes one.
 
 - Applies when: Calling queues, semaphores, task notifications, stream buffers, or event groups from an ISR.
-- Rationale: This is the concrete form `RTOS-COMMON-CONTEXT-001` takes in FreeRTOS. The task-context variant enters scheduler paths that are illegal from an ISR, and a woken flag that is passed but never yielded on defers the wake-up to the next tick, which looks like intermittent latency rather than a bug.
-- Verification (agent): For each FreeRTOS call reachable from a handler, confirm the `FromISR` suffix, that the woken argument is a real variable rather than `NULL`, and that a `portYIELD_FROM_ISR` on that variable is reached on every return path.
-- Verification (target): Test a wake-up of a higher-priority task and confirm it runs at interrupt exit rather than at the following tick.
-- Exceptions: A service MAY be called without the suffix when the selected port documents that entry point as ISR-safe with equivalent wake-up semantics.
+- Rationale: This is the concrete form `RTOS-COMMON-CONTEXT-001` takes in FreeRTOS. The task-context variant enters scheduler paths that are illegal from an ISR, and omitting the ISR entry point or its required flag changes the API's context contract.
+- Verification (agent): Trace every FreeRTOS call reachable from a handler and check the `FromISR` variant and non-null woken flag wherever the API takes one. Pass when every reachable service uses its documented ISR entry point and receives the required flag; artifact: call graph, API table, and path report.
+- Verification (target): Using the `PROJECT_RULES.md` `freertos-isr` configuration, invoke each covered queue, semaphore, notification, stream-buffer, and event-group service from its ISR context under production port settings. Pass when every service accepts the call without a context assertion and the documented result is returned for 100% of invocations; artifact: scheduler trace, `FreeRTOSConfig.h` snapshot, and configuration snapshot.
+- Exceptions: A non-suffixed service MAY be called only when the selected port/version documents equivalent ISR safety and wake semantics, with owner and review condition recorded.
 
 Correct:
 
@@ -54,7 +53,6 @@ void uart_isr(void *queue, uint8_t byte)
     BaseType_t higher_priority_task_woken = 0;
 
     (void)xQueueSendFromISR(queue, &byte, &higher_priority_task_woken);
-    portYIELD_FROM_ISR(higher_priority_task_woken);
 }
 ```
 
@@ -65,6 +63,41 @@ void uart_isr(void *queue, uint8_t byte)
 {
     /* Task-context API, and an indefinite wait with no schedulable context. */
     (void)xQueueSend(queue, &byte, portMAX_DELAY);
+}
+```
+
+### RTOS-FREERTOS-ISR-002 [MUST]
+
+When a FreeRTOS `FromISR` service reports a woken higher-priority task, the handler MUST pass
+its `BaseType_t` flag to `portYIELD_FROM_ISR` before returning.
+
+- Applies when: An ISR calls a FreeRTOS API that reports whether a higher-priority task was woken.
+- Rationale: The flag is the port's handoff for scheduling at interrupt exit; discarding it defers the wake-up and can violate the task's latency contract.
+- Verification (agent): Trace each `FromISR` call's woken flag through all handler exits. Pass when the exact flag reaches `portYIELD_FROM_ISR` before every return path that can follow the call; artifact: ISR control-flow report and flag-use table.
+- Verification (target): Using the `PROJECT_RULES.md` `freertos-isr-yield` configuration, wake a higher-priority task from isolated, burst, and back-to-back interrupts under production port settings. Pass when the task runs at interrupt exit before the next tick for every accepted wake in 100% of trials; artifact: scheduler trace, yield log, and configuration snapshot.
+- Exceptions: A port-specific exit wrapper MAY replace `portYIELD_FROM_ISR` only when it documents equivalent flag semantics, version, owner, and review condition.
+
+Correct:
+
+```c
+void uart_isr(void *queue, uint8_t byte)
+{
+    BaseType_t higher_priority_task_woken = 0;
+
+    (void)xQueueSendFromISR(queue, &byte, &higher_priority_task_woken);
+    portYIELD_FROM_ISR(higher_priority_task_woken);
+}
+```
+
+Incorrect:
+
+```c
+void uart_isr(void *queue, uint8_t byte)
+{
+    BaseType_t higher_priority_task_woken = 0;
+
+    (void)xQueueSendFromISR(queue, &byte, &higher_priority_task_woken);
+    (void)higher_priority_task_woken; /* no ISR-exit yield is issued */
 }
 ```
 
@@ -79,9 +112,9 @@ through any path including callbacks.
 
 - Applies when: Assigning or changing the priority of an ISR, or adding a FreeRTOS call to an existing handler.
 - Rationale: Ports such as the Cortex-M ones mask the kernel only up to `configMAX_SYSCALL_INTERRUPT_PRIORITY`. A handler above it can preempt the kernel's own critical section and corrupt scheduler state, and because numerically lower means higher priority on Cortex-M, the mistake reads as correct.
-- Verification (agent): Compare each handler's encoded hardware priority against the configured range recorded in `PROJECT_RULES.md`, then check the call graph of every handler above the range for FreeRTOS entry points.
-- Verification (target): Test the highest permitted priority and confirm `configASSERT` fires for a forbidden one.
-- Exceptions: None. An ISR outside the range MAY exist only if it reaches no FreeRTOS service at all.
+- Verification (agent): Compare each handler's encoded priority with the configured kernel-call range and scan every handler above it for FreeRTOS entry points. Pass when no out-of-range handler reaches the kernel and all in-range handlers use valid `FromISR` calls; artifact: priority table and call graph.
+- Verification (target): Run at the highest permitted priority and one forbidden priority with `configASSERT` enabled. Pass when the permitted ISR completes and the forbidden call triggers the configured assertion before scheduler state changes; artifact: assert log and priority configuration.
+- Exceptions: An ISR outside the range MAY exist only when a call-graph proof shows it reaches no FreeRTOS service; record scope, owner, and review condition.
 
 Correct:
 
@@ -104,9 +137,9 @@ rather than relying on the option happening to be set.
 
 - Applies when: Using an optional API, an allocation mode, a hook function, or a port-specific feature.
 - Rationale: A configuration-dependent call compiles into a different scheduling or memory contract without the caller changing. Silent substitution of a static for a dynamic allocation mode, or a missing hook, appears at run time as a failure with no code change to point at.
-- Verification (agent): For each option-gated API in the change, confirm a `#if` guard or `_Static_assert` names the required option and that the failure is a build error rather than a fallback.
-- Verification (target): Build the supported configuration matrix, including one configuration where the option is absent, and confirm the build fails there.
-- Exceptions: A project MAY rely on a single locked configuration when the build proves that selection for every consumer.
+- Verification (agent): For each option-gated API, locate a `#if` guard or `_Static_assert` naming the required option. Pass when an absent option produces a compile-time error and no fallback path is selected; artifact: preprocessor/configuration report.
+- Verification (target): Build the supported matrix, including one configuration with the option absent. Pass when supported configurations build and the absent-option build fails at the assertion; artifact: matrix log and config headers.
+- Exceptions: A single locked configuration MAY be used only when the build proves that selection for every consumer and records owner, lock source, and review condition.
 
 Correct:
 
@@ -132,4 +165,3 @@ void notify_worker(void *task)
     (void)xTaskNotifyGive(task);
 }
 ```
-
