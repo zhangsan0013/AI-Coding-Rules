@@ -8,5 +8,5 @@ void transmit(void)
 {
     uint8_t local_buffer[128] = {0U};
 
-    dma_start(local_buffer, sizeof local_buffer);
+    dma_start(local_buffer, sizeof(local_buffer));
 }

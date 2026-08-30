@@ -17,7 +17,8 @@ Requirement stated as one direct sentence.
 
 - Applies when: precise activation conditions
 - Rationale: why the requirement exists
-- Verification: formatter, compiler, static analysis, test, or review
+- Verification (agent): what a reviewer or agent can settle by reading the change and running the toolchain
+- Verification (target): what needs hardware, a measurement, or a specific build
 - Exceptions: none, or the approval and documentation required
 
 Correct:
@@ -36,11 +37,44 @@ Incorrect:
 Use `MUST`, `SHOULD`, or `MAY` consistently. Stable IDs must not be reused after a rule is
 removed. Put larger examples under `examples/<RULE-ID>/` and link to them from the rule.
 
-Every cataloged module must contain at least one normative rule. A draft module must also
-contain a `Correct:` and an `Incorrect:` example and a paired external example directory;
-these examples demonstrate the rule but do not replace domain-owner review. Keep a module
-`draft` until its wording, assumptions, verification method, and examples have been reviewed
-by the responsible domain owner.
+### Writing the two verification fields
+
+The split exists because a single `Verification:` field mixed steps an agent can perform with
+steps only a target can answer, which let an unrunnable step read as a reason to skip
+verification entirely. `CORE-CHG-VERIFY-001` governs how each half is reported.
+
+`Verification (agent):` must be an action, not a topic. Prefer naming the shape of the defect
+so the check has a decidable outcome — "a read-modify-write on a status register is a finding"
+rather than "review register accesses". Where the formatter or a compiler flag settles the rule
+completely, say so and name the flag; `None; the formatter does this` is a legitimate and
+useful value, because it tells a reviewer not to spend attention there.
+
+`Verification (target):` is where measurement, hardware behavior, and configuration-specific
+builds belong. It is not optional — it is deferred, and the change record has to say so.
+
+### Choosing MUST or SHOULD
+
+`MUST` is for a requirement whose violation makes the code wrong: undefined behavior, a
+race, a lost interrupt, a wrong wire format, a resource leak. `SHOULD` is for a requirement
+whose violation makes the code worse but not incorrect, including every convention a
+formatter can settle.
+
+A rule that mixes both belongs in two rules. `C-STYLE-SWITCH-001` and
+`C-STYLE-SWITCHFMT-001` are the worked example: unhandled-value behavior is a correctness
+property, label indentation is not, and keeping them together forced one strength onto both.
+
+Every cataloged module must contain at least one normative rule.
+
+Module status is one of three values:
+
+- `draft`: the rules are not written yet. Not loadable without `--allow-draft`.
+- `provisional`: the rules are complete and carry a `Correct:` example, an `Incorrect:`
+  example, and a paired external example directory, but no domain owner has reviewed them.
+  Loadable; must be reported as unreviewed rather than as safety coverage.
+- `active`: reviewed by the responsible domain owner.
+
+Examples demonstrate a rule but do not substitute for that review, which is what separates
+`provisional` from `active`.
 
 ## Suggested namespaces
 

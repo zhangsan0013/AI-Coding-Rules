@@ -5,12 +5,15 @@
     "c-header",
     "public-interface",
     "preprocessor",
+    "arithmetic",
     "memory",
     "mmio",
     "interrupt",
     "concurrency",
     "timeout",
     "dma",
+    "representation",
+    "startup",
     "rtos",
     "rtos-freertos",
     "rtos-rt-thread",
@@ -63,93 +66,114 @@
       "dependsOn": []
     },
     {
+      "id": "c11.arithmetic",
+      "path": "c11/arithmetic.md",
+      "status": "provisional",
+      "loadWhen": ["arithmetic"],
+      "dependsOn": []
+    },
+    {
       "id": "embedded.memory",
       "path": "embedded/memory.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["memory"],
       "dependsOn": []
     },
     {
       "id": "embedded.register-access",
       "path": "embedded/register-access.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["mmio"],
       "dependsOn": []
     },
     {
       "id": "embedded.interrupts",
       "path": "embedded/interrupts.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["interrupt"],
       "dependsOn": []
     },
     {
       "id": "embedded.concurrency",
       "path": "embedded/concurrency.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["concurrency"],
       "dependsOn": []
     },
     {
       "id": "embedded.timeout-and-errors",
       "path": "embedded/timeout-and-errors.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["timeout"],
       "dependsOn": []
     },
     {
       "id": "embedded.dma-and-cache",
       "path": "embedded/dma-and-cache.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["dma"],
+      "dependsOn": []
+    },
+    {
+      "id": "embedded.representation",
+      "path": "embedded/representation.md",
+      "status": "provisional",
+      "loadWhen": ["representation"],
+      "dependsOn": []
+    },
+    {
+      "id": "embedded.startup",
+      "path": "embedded/startup.md",
+      "status": "provisional",
+      "loadWhen": ["startup"],
       "dependsOn": []
     },
     {
       "id": "architecture.arm",
       "path": "architecture/arm.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["architecture-arm"],
       "dependsOn": []
     },
     {
       "id": "architecture.riscv",
       "path": "architecture/riscv.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["architecture-riscv"],
       "dependsOn": []
     },
     {
       "id": "rtos.common",
       "path": "rtos/common.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["rtos"],
       "dependsOn": []
     },
     {
       "id": "rtos.freertos",
       "path": "rtos/freertos.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["rtos-freertos"],
       "dependsOn": ["rtos.common"]
     },
     {
       "id": "rtos.rt-thread",
       "path": "rtos/rt-thread.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["rtos-rt-thread"],
       "dependsOn": ["rtos.common"]
     },
     {
       "id": "rtos.threadx",
       "path": "rtos/threadx.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["rtos-threadx"],
       "dependsOn": ["rtos.common"]
     },
     {
       "id": "toolchains.gcc",
       "path": "toolchains/gcc.md",
-      "status": "draft",
+      "status": "provisional",
       "loadWhen": ["toolchain-gcc"],
       "dependsOn": []
     }
@@ -158,42 +182,29 @@
     {
       "id": "embedded-c11",
       "path": "embedded-c11.md",
-      "status": "active",
+      "status": "provisional",
       "inherits": [],
       "baseline": [
         "core.correctness",
         "core.change-policy",
         "c11.style",
-        "c11.naming"
+        "c11.naming",
+        "embedded.memory"
       ]
     },
     {
       "id": "bare-metal-c11",
       "path": "bare-metal-c11.md",
-      "status": "active",
+      "status": "provisional",
       "inherits": ["embedded-c11"],
-      "baseline": []
+      "baseline": ["embedded.register-access", "embedded.startup"]
     },
     {
       "id": "rtos-c11",
       "path": "rtos-c11.md",
-      "status": "draft",
+      "status": "provisional",
       "inherits": ["embedded-c11"],
       "baseline": ["rtos.common"]
-    },
-    {
-      "id": "freertos-c11",
-      "path": "freertos-c11.md",
-      "status": "draft",
-      "inherits": ["rtos-c11"],
-      "baseline": ["rtos.freertos"]
-    },
-    {
-      "id": "stm32-freertos",
-      "path": "stm32-freertos.md",
-      "status": "draft",
-      "inherits": ["freertos-c11"],
-      "baseline": ["architecture.arm"]
     }
   ]
 }

@@ -1,7 +1,0 @@
-*.exe
-*.o
-build/
-
-# Installed by `ai-coding-rules init`; regenerate rather than commit a vendored copy
-# of the canonical rules, which drifts from rules/ and duplicates rule IDs.
-.ai-rules/

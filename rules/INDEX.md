@@ -18,6 +18,7 @@ human-readable routing explanation; the catalog does not duplicate normative rul
 - [Naming](c11/naming.md)
 - Add [public interfaces](c11/public-interface.md) for exported symbols or public headers.
 - Add [preprocessor](c11/preprocessor.md) for macros or conditional compilation.
+- Add [arithmetic](c11/arithmetic.md) for integer math, shifts, bit manipulation, or signed/unsigned comparison.
 
 ## Embedded concerns
 
@@ -27,6 +28,8 @@ human-readable routing explanation; the catalog does not duplicate normative rul
 - Shared state, atomics, or critical sections: [concurrency](embedded/concurrency.md)
 - Polling, timeouts, or error propagation: [timeouts and errors](embedded/timeout-and-errors.md)
 - DMA, cache, or buffer coherency: [DMA and cache](embedded/dma-and-cache.md)
+- Wire protocols, stored records, or shared-memory layout: [representation](embedded/representation.md)
+- Reset, early init, watchdog, or pre-`main` code: [startup](embedded/startup.md)
 
 ## Runtime concerns
 
@@ -57,6 +60,35 @@ architecture modules.
 If applicability is uncertain and the omitted module could affect safety or correctness,
 load that module and state the uncertainty.
 
-The resolver accepts explicit task signals and returns the ordered module IDs. A draft
-profile or module requires explicit `--allow-draft` and must be reported as draft rather
-than treated as safety coverage.
+## Deriving task signals
+
+The resolver (`ai-coding-rules resolve --signal <name>`) and `catalog.json` both key off
+signal names, not prose. This table maps what a change touches to the signal to pass. The
+`always` and profile-baseline modules load without a signal; add these for what the task
+actually involves.
+
+| The change touches… | Signal | Module |
+| --- | --- | --- |
+| any `.c` or `.h` file | `c-source` / `c-header` | `c11.style`, `c11.naming` |
+| an exported symbol or public header | `public-interface` | `c11.public-interface` |
+| a macro or `#if` | `preprocessor` | `c11.preprocessor` |
+| integer math, a shift, a mask, or a signed/unsigned compare | `arithmetic` | `c11.arithmetic` |
+| allocation, buffers, stack, or object lifetime | `memory` | `embedded.memory` |
+| a memory-mapped register | `mmio` | `embedded.register-access` |
+| an interrupt handler or ISR-reachable code | `interrupt` | `embedded.interrupts` |
+| state shared across contexts, an atomic, or a lock | `concurrency` | `embedded.concurrency` |
+| a poll, retry, timeout, or hardware error path | `timeout` | `embedded.timeout-and-errors` |
+| a DMA transfer or cache maintenance | `dma` | `embedded.dma-and-cache` |
+| a wire protocol, stored record, or shared layout | `representation` | `embedded.representation` |
+| reset, early init, watchdog, or pre-`main` code | `startup` | `embedded.startup` |
+| any RTOS service | `rtos` | `rtos.common` |
+| a FreeRTOS / RT-Thread / ThreadX API | `rtos-freertos` / `rtos-rt-thread` / `rtos-threadx` | the matching adapter |
+| Arm / RISC-V specific ABI, exception, or barrier code | `architecture-arm` / `architecture-riscv` | the matching module |
+| a GCC attribute, diagnostic, or LTO behavior | `toolchain-gcc` | `toolchains.gcc` |
+
+A change usually matches several rows; pass every signal that applies. When two readings of
+the task differ on whether a safety-related signal applies, pass it.
+
+The resolver returns the ordered module IDs. A `provisional` profile or module resolves
+normally but must be reported as unreviewed rather than as safety coverage. A `draft` one
+requires explicit `--allow-draft`.

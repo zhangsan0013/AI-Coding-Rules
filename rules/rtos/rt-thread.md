@@ -1,6 +1,6 @@
 # RT-Thread Adapter Rules
 
-Status: draft
+Status: provisional
 
 ## Scope
 
@@ -25,61 +25,23 @@ ISR-safety or blocking guarantee.
 
 ## Rules
 
+These bind [RTOS common](common.md) to specific RT-Thread APIs and BSP behavior. Context
+legality, blocking contracts, object lifecycle, priority-inversion policy, and thread stack
+bounds are in that module and are not restated here.
+
 ### RTOS-RTTHREAD-ISR-001 [MUST]
 
-Code executing in an interrupt context MUST use only RT-Thread services documented as safe
-for that exact BSP and context, and MUST NOT call a service that can wait, allocate from an
-unbounded heap, or yield inside the handler.
+An RT-Thread service reachable from interrupt context MUST appear on the ISR-safe list
+recorded for the selected version and BSP, and MUST be called in a non-waiting form.
 
-- Applies when: Calling RT-Thread IPC, synchronization, scheduler, memory, or device services from an ISR or interrupt callback.
-- Rationale: RT-Thread service legality and wake-up behavior depend on the BSP and configuration; a task-context call can corrupt scheduler state or deadlock.
-- Verification: Build the selected-port ISR-safe call list, inspect indirect calls, and test full, empty, and wake-up results.
-- Exceptions: A service MAY be used when the exact RT-Thread version and BSP document its ISR behavior and result semantics.
+RT-Thread does not mark ISR-callable services with a distinguishing suffix, so the recorded
+list is the only contract. A familiar function name is not evidence.
 
-### RTOS-RTTHREAD-TIMEOUT-001 [MUST]
-
-RT-Thread wait values MUST use the selected tick configuration, MUST distinguish immediate,
-finite, and indefinite waits, and MUST propagate timeout results to the caller.
-
-- Applies when: Passing timeout values to semaphores, mutexes, mailboxes, message queues, events, or delays.
-- Rationale: Tick conversion and `RT_WAITING_FOREVER` change both scheduling and recovery behavior, and timeout codes can otherwise be mistaken for success.
-- Verification: Test immediate, one-tick, maximum, wrap, and timeout cases under the selected tick configuration.
-- Exceptions: An indefinite wait MAY be used only under the explicit lifecycle and recovery contract of the owning thread.
-
-### RTOS-RTTHREAD-IPC-001 [MUST]
-
-An RT-Thread IPC operation MUST define whether it copies a value or transfers a pointer,
-and the producer MUST retain or release storage according to that contract after a send.
-
-- Applies when: Using mailboxes, message queues, memory pools, signals, or custom IPC wrappers.
-- Rationale: Treating a copied message as a pointer, or a transferred pointer as copied data, creates stale references, leaks, or double release.
-- Verification: Inspect the API size and ownership contract and test full, empty, rejected, and shutdown paths.
-- Exceptions: A wrapper MAY alter the ownership model only when its interface documents the new model and tests both sides.
-
-### RTOS-RTTHREAD-OBJECT-001 [MUST]
-
-An RT-Thread object MUST be fully initialized before publication and MUST not be detached,
-freed, or reused until all waiters, callbacks, and interrupt paths have left it.
-
-- Applies when: Creating, registering, detaching, or reusing threads, IPC objects, timers, device objects, and memory pools.
-- Rationale: Object registration and handle reuse can race pending scheduler or callback activity.
-- Verification: Test publication during startup, concurrent teardown, pending wake-ups, and repeated initialization failure.
-- Exceptions: A permanent statically owned object MAY omit teardown when the project prohibits reuse or deletion.
-
-### RTOS-RTTHREAD-SCHEDULER-001 [MUST]
-
-Scheduler locks and interrupt masks MUST be held only for the minimum bounded work and MUST
-be restored using the saved state on every exit path.
-
-- Applies when: Disabling interrupts, locking the scheduler, or entering a port-specific critical section.
-- Rationale: A stale mask or scheduler lock can stop all progress, while excessive scope increases interrupt latency.
-- Verification: Review nested use and early returns, then test the failure and restoration paths on the selected BSP.
-- Exceptions: A longer interval MAY be used only with a recorded latency bound and a port-approved reason.
-
-## Module examples
-
-See the larger [compliant](../../examples/RTOS-RTTHREAD-ISR-001/compliant.c) and
-[violating](../../examples/RTOS-RTTHREAD-ISR-001/violation.c) examples.
+- Applies when: Calling IPC, synchronization, scheduler, memory, or device services from an ISR or an interrupt callback.
+- Rationale: This is the concrete form `RTOS-COMMON-CONTEXT-001` takes in RT-Thread. Because the API surface looks identical from both contexts, the usual failure is calling a waiting service from a handler, where `RT_WAITING_FOREVER` deadlocks with no schedulable context to wait in.
+- Verification (agent): For each RT-Thread call reachable from a handler, look it up in the recorded ISR-safe list and confirm the timeout argument is `RT_WAITING_NO` or the service is documented as non-waiting. A call absent from the list is a finding, not an assumption.
+- Verification (target): Test the full, empty, and wake-up results on the selected BSP.
+- Exceptions: A service MAY be used when the exact version and BSP document its interrupt-context behavior and result semantics.
 
 Correct:
 
@@ -90,7 +52,7 @@ extern int project_rtthread_mailbox_send_from_isr(void *mailbox, uint32_t value)
 
 void sensor_isr(void *mailbox, uint32_t value)
 {
-    /* The selected BSP documents this wrapper and its non-blocking result. */
+    /* PROJECT_RULES records this wrapper and its non-blocking result for this BSP. */
     (void)project_rtthread_mailbox_send_from_isr(mailbox, value);
 }
 ```
@@ -100,7 +62,61 @@ Incorrect:
 ```c
 void sensor_isr(void *mailbox, const void *message)
 {
-    /* A task-context, potentially blocking send has no ISR contract here. */
+    /* A waiting send has no ISR contract, and the name does not reveal that. */
     (void)rt_mb_send(mailbox, message, RT_WAITING_FOREVER);
 }
 ```
+
+A larger pair of examples is in
+[examples/RTOS-RTTHREAD-ISR-001](../../examples/RTOS-RTTHREAD-ISR-001/).
+
+### RTOS-RTTHREAD-IPC-001 [MUST]
+
+An RT-Thread IPC operation MUST state whether it copies a value or transfers a pointer, and
+the producer MUST retain or release the storage according to that contract.
+
+- Applies when: Using mailboxes, message queues, memory pools, signals, or a wrapper over them.
+- Rationale: RT-Thread mailboxes carry a pointer-sized value while message queues copy the payload, and both take a `void *`. Passing a stack buffer to a mailbox leaves the receiver a dangling pointer; treating a copied message as owned storage double-releases it. The type system catches neither.
+- Verification (agent): For each send, confirm the API's copy-or-transfer semantics against the payload's storage duration, and confirm the release responsibility on both the success and rejection paths. A stack or scope-local buffer passed to a mailbox is a finding.
+- Verification (target): Test full, empty, rejected, and shutdown paths, confirming no buffer is released twice or leaked when a send is rejected.
+- Exceptions: A wrapper MAY change the ownership model when its interface documents the new model and both sides are tested against it.
+
+Correct:
+
+```c
+#include <stdint.h>
+
+extern void *sample_pool_alloc(void);
+extern void sample_pool_free(void *block);
+extern int rt_mb_send(void *mailbox, uint32_t value, int32_t timeout);
+
+int publish_sample(void *mailbox, uint32_t reading)
+{
+    uint32_t *block = sample_pool_alloc();   /* pool storage outlives this frame */
+
+    if (block == 0) {
+        return -1;
+    }
+
+    *block = reading;
+    if (rt_mb_send(mailbox, (uint32_t)(uintptr_t)block, 0) != 0) {
+        sample_pool_free(block);   /* rejected: the producer still owns it */
+        return -1;
+    }
+
+    return 0;   /* accepted: the receiver owns it now */
+}
+```
+
+Incorrect:
+
+```c
+int publish_sample(void *mailbox, uint32_t reading)
+{
+    uint32_t local = reading;
+
+    /* A mailbox transfers the pointer; this one dangles as soon as we return. */
+    return rt_mb_send(mailbox, (uint32_t)(uintptr_t)&local, 0);
+}
+```
+

@@ -1,6 +1,6 @@
 # RTOS C11 Profile
 
-Status: draft
+Status: provisional
 
 ## Inherits
 

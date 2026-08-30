@@ -20,6 +20,3 @@ Before changing code:
 - Cite the IDs of normative rules that materially affected the change.
 - Run the verification named by each applied rule when feasible.
 - Report validation that was not run; do not present static inspection as runtime evidence.
-
-Do not load the legacy `.ai-rules/CODING_RULES.md` unless the task explicitly involves
-migrating it into canonical rule modules.

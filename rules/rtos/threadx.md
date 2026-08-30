@@ -1,6 +1,6 @@
 # ThreadX Adapter Rules
 
-Status: draft
+Status: provisional
 
 ## Scope
 
@@ -25,86 +25,113 @@ legal from an interrupt.
 
 ## Rules
 
+These bind [RTOS common](common.md) to specific ThreadX APIs and port behavior. Context
+legality, blocking contracts, object lifecycle, priority-inversion policy, and thread stack
+bounds are in that module and are not restated here.
+
 ### RTOS-THREADX-ISR-001 [MUST]
 
-An interrupt path MUST call only ThreadX services documented as safe from an interrupt for
-the selected port, MUST use a non-waiting form where required, and MUST preserve the
-documented status and rescheduling semantics.
+A ThreadX service called from interrupt context MUST be one the selected port documents as
+ISR-legal, MUST use `TX_NO_WAIT`, and its returned status MUST be inspected.
 
-- Applies when: Calling ThreadX queues, semaphores, event flags, pools, timers, or scheduler services from an ISR.
-- Rationale: ThreadX ISR legality is service- and port-specific; a zero wait does not remove internal scheduler or ownership requirements.
-- Verification: Check the selected ThreadX service table and port documentation, inspect indirect calls, and test success, full, and error results.
-- Exceptions: A service MAY be called from an ISR only when the exact version and port document that operation and its wake-up behavior.
+`TX_NO_WAIT` makes a call non-blocking; it does not make it legal. The two are separate
+properties, and only the port's service table settles the second.
 
-### RTOS-THREADX-TIMEOUT-001 [MUST]
-
-ThreadX wait values MUST use the selected tick configuration, MUST distinguish `TX_NO_WAIT`,
-finite waits, and indefinite waits, and MUST propagate timeout status.
-
-- Applies when: Waiting on queues, semaphores, event flags, mutexes, byte pools, or block pools.
-- Rationale: Wait options control scheduler participation and recovery; treating a timeout as a successful empty result can corrupt state progression.
-- Verification: Test immediate, one-tick, maximum, wrap, and timeout paths with the selected tick and timeout configuration.
-- Exceptions: `TX_WAIT_FOREVER` MAY be used only under a documented task lifecycle and recovery contract, never as an ISR wait.
-
-### RTOS-THREADX-OBJECT-001 [MUST]
-
-A ThreadX object MUST remain initialized and allocated until no task, ISR, callback, or
-pending operation can reference it, and deletion MUST be coordinated with those users.
-
-- Applies when: Creating, deleting, resetting, or reusing queues, semaphores, mutexes, event flags, timers, threads, and pools.
-- Rationale: ThreadX object control blocks and backing storage are not protected from concurrent reclamation by a handle alone.
-- Verification: Review all lifecycle transitions and test deletion with blocked waiters, queued messages, callbacks, and interrupt events.
-- Exceptions: A static object MAY be retained for system lifetime when deletion and reuse are explicitly prohibited.
-
-### RTOS-THREADX-POOL-001 [MUST]
-
-Memory obtained from a ThreadX byte or block pool MUST be returned to the same pool by its
-owner on every success, cancellation, timeout, and error path.
-
-- Applies when: Allocating, passing, splitting, or releasing pool-backed buffers and messages.
-- Rationale: Pool storage has a finite owner and alignment contract; returning an unknown or already returned block damages future allocations.
-- Verification: Track pool ownership and size through every branch and inject exhaustion, cancellation, and double-release attempts.
-- Exceptions: A wrapper MAY transfer ownership when it preserves the pool identity, block boundary, and release responsibility in its interface.
-
-### RTOS-THREADX-SCHEDULER-001 [MUST]
-
-ThreadX priority, preemption-threshold, and time-slicing settings MUST be selected from
-verified project facts and MUST NOT be changed temporarily without a bounded restoration
-protocol.
-
-- Applies when: Creating threads, changing priorities, configuring thresholds, or modifying scheduler control.
-- Rationale: Scheduler settings alter which work can run and can create starvation or unbounded blocking when treated as local implementation details.
-- Verification: Review the configured priority graph and measure worst-case blocking and restoration paths.
-- Exceptions: A documented mode transition MAY change settings when no affected thread can run until the transition is complete.
-
-## Module examples
-
-See the larger [compliant](../../examples/RTOS-THREADX-ISR-001/compliant.c) and
-[violating](../../examples/RTOS-THREADX-ISR-001/violation.c) examples.
+- Applies when: Calling queues, semaphores, event flags, pools, timers, or scheduler services from an ISR.
+- Rationale: This is the concrete form `RTOS-COMMON-CONTEXT-001` takes in ThreadX. Because most services accept a wait option from either context, `TX_NO_WAIT` reads as sufficient evidence of ISR safety when it is only half of it. Discarding the status then hides `TX_QUEUE_FULL`, which is the normal result under load rather than an exceptional one.
+- Verification (agent): For each ThreadX call reachable from a handler, confirm the service appears in the port's ISR-legal table, that the wait option is `TX_NO_WAIT`, and that the returned status reaches a branch. A discarded status or an unlisted service is a finding.
+- Verification (target): Test the success, full, and error results, including a queue that is full when the interrupt fires.
+- Exceptions: A service MAY be called from an ISR when the exact version and port document that operation and its wake-up behavior.
 
 Correct:
 
 ```c
 #include <stdint.h>
 
-#define TX_NO_WAIT 0U
+#define TX_SUCCESS 0x00U
+#define TX_NO_WAIT 0x00000000U
 
-extern unsigned project_threadx_queue_send_from_isr(void *queue,
-                                                     const void *message,
-                                                     unsigned wait_option);
+extern unsigned int tx_queue_send(void *queue, void *source, unsigned long wait);
+extern void platform_record_queue_full_from_isr(void);
 
-void packet_isr(void *queue, const uint32_t *message)
+void sensor_isr(void *queue, uint32_t reading)
 {
-    (void)project_threadx_queue_send_from_isr(queue, message, TX_NO_WAIT);
+    uint32_t message = reading;
+
+    /* The port's service table lists tx_queue_send as ISR-legal with TX_NO_WAIT. */
+    if (tx_queue_send(queue, &message, TX_NO_WAIT) != TX_SUCCESS) {
+        platform_record_queue_full_from_isr();
+    }
 }
 ```
 
 Incorrect:
 
 ```c
-void packet_isr(void *queue, const uint32_t *message)
+void sensor_isr(void *queue, uint32_t reading)
 {
-    /* An indefinite wait is not an interrupt-safe contract. */
-    (void)tx_queue_send(queue, message, TX_WAIT_FOREVER);
+    uint32_t message = reading;
+
+    /* TX_NO_WAIT is present, but the status is dropped: a full queue loses the sample. */
+    (void)tx_queue_send(queue, &message, TX_NO_WAIT);
 }
 ```
+
+A larger pair of examples is in
+[examples/RTOS-THREADX-ISR-001](../../examples/RTOS-THREADX-ISR-001/).
+
+### RTOS-THREADX-POOL-001 [MUST]
+
+Memory from a ThreadX byte or block pool MUST be returned to the pool it came from, by its
+owner, on every success, cancellation, timeout, and error path.
+
+- Applies when: Allocating, passing, splitting, or releasing pool-backed buffers and messages.
+- Rationale: `tx_byte_release` and `tx_block_release` take only the pointer and locate the owning pool from the block header. A pointer into the middle of a block, or one already released, corrupts that header and the damage appears in an unrelated allocation later.
+- Verification (agent): Track each allocated pointer to a release on every branch, including early returns and error paths. Confirm the released pointer is the one allocation returned, not an offset into it, and that ownership after a failed handoff is stated.
+- Verification (target): Inject exhaustion, cancellation, and a double release, and confirm subsequent allocations still behave.
+- Exceptions: A wrapper MAY transfer ownership when its interface preserves the pool identity, the block boundary, and the release responsibility.
+
+Correct:
+
+```c
+#define TX_SUCCESS 0x00U
+
+extern unsigned int tx_byte_allocate(void *pool, void **memory, unsigned long size, unsigned long wait);
+extern unsigned int tx_byte_release(void *memory);
+extern unsigned int frame_transmit(void *frame, unsigned long size);
+
+unsigned int send_frame(void *pool, unsigned long size)
+{
+    void *frame = 0;
+    unsigned int status = tx_byte_allocate(pool, &frame, size, 100U);
+
+    if (status != TX_SUCCESS) {
+        return status;
+    }
+
+    status = frame_transmit(frame, size);
+    (void)tx_byte_release(frame);   /* released on both the success and failure paths */
+    return status;
+}
+```
+
+Incorrect:
+
+```c
+unsigned int send_frame(void *pool, unsigned long size)
+{
+    void *frame = 0;
+
+    if (tx_byte_allocate(pool, &frame, size, 100U) != TX_SUCCESS) {
+        return 1U;
+    }
+
+    if (frame_transmit(frame, size) != TX_SUCCESS) {
+        return 1U;   /* leaks the block, and the pool never recovers it */
+    }
+
+    (void)tx_byte_release((char *)frame + 4);   /* not the pointer allocation returned */
+    return 0U;
+}
+```
+

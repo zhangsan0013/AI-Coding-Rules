@@ -14,8 +14,6 @@ development. Keep these responsibilities separate:
 - `examples/` demonstrate individual rules.
 - `checks/` verifies repository structure and references.
 
-`CODING_RULES.md` is legacy source material until its rules are reviewed and migrated.
-
 ## Rule authoring
 
 Follow `rules/README.md`. Each normative rule must have one stable ID, one strength,

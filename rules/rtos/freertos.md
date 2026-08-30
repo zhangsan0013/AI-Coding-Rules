@@ -1,6 +1,6 @@
 # FreeRTOS Adapter Rules
 
-Status: draft
+Status: provisional
 
 ## Scope
 
@@ -24,62 +24,21 @@ Record these in `PROJECT_RULES.md`; do not infer them from a symbol name alone.
 
 ## Rules
 
+These bind [RTOS common](common.md) to specific FreeRTOS APIs and configuration. Context
+legality, blocking contracts, object lifecycle, priority-inversion policy, and task stack
+bounds are in that module and are not restated here.
+
 ### RTOS-FREERTOS-ISR-001 [MUST]
 
-Code executing in an interrupt context MUST use the FreeRTOS service variant documented for
-that context, MUST pass and inspect the higher-priority-task-woken result where applicable,
-and MUST request the documented interrupt-exit yield when required.
+Interrupt-context code MUST call the `...FromISR` variant of a FreeRTOS service, MUST pass a
+`BaseType_t` woken flag where the API takes one, and MUST hand that flag to
+`portYIELD_FROM_ISR` before returning.
 
-- Applies when: Calling queues, semaphores, task notifications, stream buffers, or other FreeRTOS services from an ISR.
-- Rationale: Task-context services can enter scheduler paths that are illegal in an ISR, and ignoring the wake result adds avoidable scheduling latency.
-- Verification: Check the exact FreeRTOS version and port documentation, review every result branch, and test a wake-up of a higher-priority task.
-- Exceptions: A service MAY be called directly only when the selected port explicitly documents it as ISR-safe and supplies equivalent wake-up semantics.
-
-### RTOS-FREERTOS-PRIORITY-001 [MUST]
-
-An interrupt that calls a FreeRTOS ISR service MUST be configured within the selected
-port's documented system-call priority range.
-
-- Applies when: Assigning, changing, or reviewing the priority of an ISR that invokes a `FromISR` API.
-- Rationale: FreeRTOS ports commonly restrict kernel access from high-priority interrupts; violating the port rule can corrupt scheduler state.
-- Verification: Compare encoded hardware priorities, port configuration, and vector assignments, then test the highest permitted and forbidden cases.
-- Exceptions: An ISR outside the kernel-call range MAY exist only when it never reaches a FreeRTOS service, including through callbacks.
-
-### RTOS-FREERTOS-TIMEOUT-001 [MUST]
-
-FreeRTOS timeout values MUST be converted using the selected tick configuration, MUST have
-defined overflow and rounding behavior, and MUST be handled as finite waits unless an
-approved indefinite-wait contract applies.
-
-- Applies when: Passing tick counts to queues, notifications, semaphores, delays, or event groups.
-- Rationale: Tick width, scheduler suspension, conversion rounding, and configuration determine the actual wait and its maximum representable value.
-- Verification: Test zero, one-tick, maximum, overflow, and tick-wrap cases with the selected configuration.
-- Exceptions: An indefinite wait MAY be used only when the owning task's lifecycle and recovery contract explicitly require it.
-
-### RTOS-FREERTOS-OBJECT-001 [MUST]
-
-A FreeRTOS object MUST remain allocated and initialized until every task, ISR, callback,
-and deferred operation that can reference it has stopped using it.
-
-- Applies when: Creating or deleting queues, semaphores, task notifications, timers, stream buffers, and static or dynamic objects.
-- Rationale: FreeRTOS handles do not by themselves prevent a concurrent delete or reclaim of the storage they identify.
-- Verification: Review the create/delete lifecycle and test teardown with pending messages, blocked tasks, callbacks, and ISR events.
-- Exceptions: A statically allocated object MAY be permanent when deletion is prohibited and its owner is documented.
-
-### RTOS-FREERTOS-CONFIG-001 [MUST]
-
-Code that depends on a `FreeRTOSConfig.h` option MUST state that dependency and MUST fail
-the build or return a defined result when the option is absent or incompatible.
-
-- Applies when: Using optional APIs, allocation modes, hook functions, assertions, tick settings, or port-specific features.
-- Rationale: A configuration-dependent call can compile into a different scheduling or memory contract without changing the caller.
-- Verification: Build the supported configuration matrix or compile-time assertions and exercise the unsupported configuration path.
-- Exceptions: A project may support one locked configuration only when the build proves that selection for every consumer.
-
-## Module examples
-
-See the larger [compliant](../../examples/RTOS-FREERTOS-ISR-001/compliant.c) and
-[violating](../../examples/RTOS-FREERTOS-ISR-001/violation.c) examples.
+- Applies when: Calling queues, semaphores, task notifications, stream buffers, or event groups from an ISR.
+- Rationale: This is the concrete form `RTOS-COMMON-CONTEXT-001` takes in FreeRTOS. The task-context variant enters scheduler paths that are illegal from an ISR, and a woken flag that is passed but never yielded on defers the wake-up to the next tick, which looks like intermittent latency rather than a bug.
+- Verification (agent): For each FreeRTOS call reachable from a handler, confirm the `FromISR` suffix, that the woken argument is a real variable rather than `NULL`, and that a `portYIELD_FROM_ISR` on that variable is reached on every return path.
+- Verification (target): Test a wake-up of a higher-priority task and confirm it runs at interrupt exit rather than at the following tick.
+- Exceptions: A service MAY be called without the suffix when the selected port documents that entry point as ISR-safe with equivalent wake-up semantics.
 
 Correct:
 
@@ -104,7 +63,73 @@ Incorrect:
 ```c
 void uart_isr(void *queue, uint8_t byte)
 {
-    /* The task-context API and an indefinite wait are illegal ISR assumptions. */
+    /* Task-context API, and an indefinite wait with no schedulable context. */
     (void)xQueueSend(queue, &byte, portMAX_DELAY);
 }
 ```
+
+A larger pair of examples is in
+[examples/RTOS-FREERTOS-ISR-001](../../examples/RTOS-FREERTOS-ISR-001/).
+
+### RTOS-FREERTOS-PRIORITY-001 [MUST]
+
+An interrupt that calls any `FromISR` service MUST have a priority inside the port's
+kernel-call range, and an interrupt above that range MUST NOT reach a FreeRTOS service
+through any path including callbacks.
+
+- Applies when: Assigning or changing the priority of an ISR, or adding a FreeRTOS call to an existing handler.
+- Rationale: Ports such as the Cortex-M ones mask the kernel only up to `configMAX_SYSCALL_INTERRUPT_PRIORITY`. A handler above it can preempt the kernel's own critical section and corrupt scheduler state, and because numerically lower means higher priority on Cortex-M, the mistake reads as correct.
+- Verification (agent): Compare each handler's encoded hardware priority against the configured range recorded in `PROJECT_RULES.md`, then check the call graph of every handler above the range for FreeRTOS entry points.
+- Verification (target): Test the highest permitted priority and confirm `configASSERT` fires for a forbidden one.
+- Exceptions: None. An ISR outside the range MAY exist only if it reaches no FreeRTOS service at all.
+
+Correct:
+
+```text
+configMAX_SYSCALL_INTERRUPT_PRIORITY = 5 (Cortex-M, 3 priority bits, 0 = highest)
+UART0_RX  priority 6  calls xQueueSendFromISR      -> inside the kernel-call range
+MOTOR_FAULT priority 1  no FreeRTOS calls at all   -> above the range, and does not call in
+```
+
+Incorrect:
+
+```text
+MOTOR_FAULT priority 1  calls xSemaphoreGiveFromISR -> above the range; preempts the kernel
+```
+
+### RTOS-FREERTOS-CONFIG-001 [MUST]
+
+Code that depends on a `FreeRTOSConfig.h` option MUST assert that dependency at compile time
+rather than relying on the option happening to be set.
+
+- Applies when: Using an optional API, an allocation mode, a hook function, or a port-specific feature.
+- Rationale: A configuration-dependent call compiles into a different scheduling or memory contract without the caller changing. Silent substitution of a static for a dynamic allocation mode, or a missing hook, appears at run time as a failure with no code change to point at.
+- Verification (agent): For each option-gated API in the change, confirm a `#if` guard or `_Static_assert` names the required option and that the failure is a build error rather than a fallback.
+- Verification (target): Build the supported configuration matrix, including one configuration where the option is absent, and confirm the build fails there.
+- Exceptions: A project MAY rely on a single locked configuration when the build proves that selection for every consumer.
+
+Correct:
+
+```c
+#include "FreeRTOS.h"
+
+#if (configUSE_TASK_NOTIFICATIONS != 1)
+#error "notify_worker requires configUSE_TASK_NOTIFICATIONS == 1"
+#endif
+
+void notify_worker(void *task)
+{
+    (void)xTaskNotifyGive(task);
+}
+```
+
+Incorrect:
+
+```c
+void notify_worker(void *task)
+{
+    /* Compiles away or fails to link depending on a config the caller never states. */
+    (void)xTaskNotifyGive(task);
+}
+```
+

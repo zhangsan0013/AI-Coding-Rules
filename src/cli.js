@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { loadRuleCatalog, resolveRuleModuleIds } = require('./rule-catalog');
+const { loadRuleCatalog, resolveRuleModuleIds, MODULE_STATUSES } = require('./rule-catalog');
 
 const packageRoot = path.resolve(__dirname, '..');
 const packageInfo = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
@@ -105,12 +105,13 @@ function assertProfile(profile, allowDraft) {
   }
 
   const status = readStatus(path.join(packageRoot, 'profiles', `${profile}.md`));
-  if (status !== 'active' && status !== 'draft') {
+  if (!MODULE_STATUSES.includes(status)) {
     throw new Error(`Profile "${profile}" has unsupported status "${status || 'missing'}".`);
   }
   if (status === 'draft' && !allowDraft) {
-    throw new Error(`Profile "${profile}" is draft. Pass --allow-draft for authoring or experimentation.`);
+    throw new Error(`Profile "${profile}" is draft and incomplete. Pass --allow-draft for authoring or experimentation.`);
   }
+  return status;
 }
 
 function readJson(filePath) {
@@ -237,9 +238,6 @@ function buildAgentsBlock(profile) {
     'approved exceptions using the precedence defined in `.ai-rules/docs/architecture.md`.',
     'Cite materially applied rule IDs, run the verification named by each applied rule when',
     'feasible, and report validation that was not run.',
-    '',
-    'Do not load the legacy `.ai-rules/CODING_RULES.md` unless the task explicitly involves',
-    'migrating it into canonical rule modules.',
     '',
     'Selected profile: `.ai-rules/profiles/' + profile + '.md`',
     AGENTS_END,
@@ -380,7 +378,7 @@ function printPlan(command, projectPath, profile, changes) {
   }
 }
 
-function prepareAndInstall(projectPath, profile, command, options) {
+function prepareAndInstall(projectPath, profile, command, options, profileStatus) {
   const aiRulesPath = path.join(projectPath, '.ai-rules');
   const exists = pathExists(aiRulesPath);
   if (command === 'init' && exists && !options.force) {
@@ -417,8 +415,12 @@ function prepareAndInstall(projectPath, profile, command, options) {
     replaceDirectory(aiRulesPath, stagePath);
     writeProjectFiles(projectPath, profile, false, profileChanged);
     console.log(`${command} complete: ${projectPath}`);
-    console.log(`- profile: ${profile}`);
+    console.log(`- profile: ${profile}${profileStatus === 'active' ? '' : ` [${profileStatus}]`}`);
     console.log(`- package: ${packageInfo.name}@${packageInfo.version}`);
+    if (profileStatus === 'provisional') {
+      console.log('- note: this profile is provisional. Its rules are complete but have not passed');
+      console.log('  domain-owner review; do not report them as safety coverage.');
+    }
   } finally {
     if (pathExists(stagePath)) {
       fs.rmSync(stagePath, { recursive: true, force: true });
@@ -467,9 +469,17 @@ async function main(argv) {
     console.log(`resolve plan for profile ${profile}`);
     console.log(`- signals: ${options.signals.length > 0 ? options.signals.join(', ') : 'none'}`);
     console.log('- modules:');
+    let provisionalCount = 0;
     for (const moduleId of moduleIds) {
       const module = catalog.modules.find((entry) => entry.id === moduleId);
+      if (module.status === 'provisional') {
+        provisionalCount += 1;
+      }
       console.log(`  - ${module.id} [${module.status}] ${module.path}`);
+    }
+    if (provisionalCount > 0) {
+      console.log(`- note: ${provisionalCount} module(s) are provisional. Their rules are complete`);
+      console.log('  but have not passed domain-owner review; do not report them as safety coverage.');
     }
     return;
   }
@@ -492,8 +502,8 @@ async function main(argv) {
     profile = readJson(manifestPath).profile;
   }
   profile = profile || DEFAULT_PROFILE;
-  assertProfile(profile, options.allowDraft);
-  prepareAndInstall(projectPath, profile, options.command, options);
+  const profileStatus = assertProfile(profile, options.allowDraft);
+  prepareAndInstall(projectPath, profile, options.command, options, profileStatus);
 }
 
 module.exports = {

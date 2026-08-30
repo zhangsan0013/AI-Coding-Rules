@@ -1,5 +1,5 @@
 /*
- * EMB-ISR-MASK-001 compliant example.
+ * EMB-CONC-CRITICAL-001 compliant example.
  *
  * Every exit path restores the saved state, so a caller that was already running masked
  * stays masked when this function returns.

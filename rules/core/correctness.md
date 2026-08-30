@@ -23,7 +23,8 @@ limited until it is clarified.
 
 - Applies when: Changing behavior, fixing a defect, or refactoring code that may affect behavior.
 - Rationale: An explicit contract prevents an agent or maintainer from inventing behavior when the requirement is incomplete.
-- Verification: Review the change description, callers, and tests for explicit success, failure, and invariant conditions.
+- Verification (agent): Confirm the change states the contract it implements and does not silently widen or narrow it. A behavior change with no corresponding contract change is a finding.
+- Verification (target): Run the tests that cover the contract.
 - Exceptions: Emergency containment MAY proceed with a documented temporary assumption and follow-up owner.
 
 Correct:
@@ -48,7 +49,8 @@ equivalent mechanism, and relevant error context MUST be preserved across bounda
 
 - Applies when: Handling errors, failed operations, retries, fallbacks, or boundary translation.
 - Rationale: Hidden failures turn recoverable faults into corrupted state and make diagnosis unreliable.
-- Verification: Review every failure branch and test that the responsible caller can distinguish success from failure.
+- Verification (agent): Confirm each error is detected where it occurs, represented explicitly, and reaches a caller that can act on it.
+- Verification (target): Test each error path.
 - Exceptions: A boundary adapter MAY translate an error model only when it preserves failure meaning and documents the mapping.
 
 Correct:
@@ -74,7 +76,8 @@ reason and equivalent independently reviewable evidence MUST be recorded.
 
 - Applies when: Fixing a reported defect, failure, regression, or data-integrity issue.
 - Rationale: Symptom-only fixes allow the underlying defect to recur under a different input or execution path.
-- Verification: Review the root-cause statement and run the regression test or documented equivalent evidence.
+- Verification (agent): Confirm the change addresses the cause rather than suppressing the symptom. A guard added around a failure whose origin is not identified is a finding.
+- Verification (target): Reproduce the original failure and confirm it no longer occurs.
 - Exceptions: A short-lived emergency mitigation MAY precede the permanent fix, but it MUST identify the owner and follow-up deadline.
 
 Correct:
@@ -98,7 +101,8 @@ partial completion MUST define its intermediate state and recovery semantics.
 
 - Applies when: Creating, updating, deleting, or otherwise mutating state that another operation can observe.
 - Rationale: Valid failure states prevent half-applied updates, unsafe retries, and order-dependent corruption.
-- Verification: Review precondition ordering and test success, invalid-input, failure, retry, and partial-completion paths.
+- Verification (agent): Confirm each invariant the change relies on is stated and checked where it is established, not only where it is assumed.
+- Verification (target): Test the invariant violation case.
 - Exceptions: Hardware or external protocols MAY impose partial completion when the boundary documents the state and recovery contract.
 
 Correct:

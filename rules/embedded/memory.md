@@ -1,6 +1,6 @@
 # Embedded Memory Rules
 
-Status: draft
+Status: provisional
 
 ## Scope
 
@@ -31,7 +31,8 @@ asynchronous pointer MUST carry an explicit lifetime contract.
 
 - Applies when: Returning, storing, queueing, or passing pointers across a call, task, interrupt, DMA, or asynchronous callback boundary.
 - Rationale: A pointer value does not extend the lifetime of the object it identifies, so a valid-looking address can become a use-after-scope or use-after-release defect.
-- Verification: Trace each pointer consumer to the object's creation and release, including error and deferred paths, and test the last-use-after-transfer case.
+- Verification (agent): Trace each pointer consumer back to the object it points into and confirm that object outlives the last use, including on error and deferred paths. A pointer to an automatic object that escapes its scope, or one retained past a release, is a finding.
+- Verification (target): Test the last-use-after-transfer case and confirm the object is still valid at that point.
 - Exceptions: A shorter lifetime MAY be used only when the API contract proves that no consumer can retain or dereference the pointer after the lifetime ends.
 
 ### EMB-MEM-OWNERSHIP-001 [MUST]
@@ -41,18 +42,37 @@ its lifetime, and ownership transfer or borrowing MUST be explicit at the interf
 
 - Applies when: Sharing buffers, handles, messages, pool entries, or dynamically allocated objects between contexts.
 - Rationale: An explicit owner makes mutation and release responsibility reviewable and prevents double release, leaks, and concurrent mutation.
-- Verification: Draw the ownership transitions for success, rejection, cancellation, timeout, and reset paths, then test every terminal transition.
+- Verification (agent): Name the owner of each shared buffer, handle, or pool entry at every interface it crosses, then check the success, rejection, cancellation, timeout, and reset paths for exactly one release. Two paths that both release, or none that does, are findings.
+- Verification (target): Test every terminal ownership transition, including a transfer that the receiver rejects.
 - Exceptions: Shared immutable storage MAY have multiple readers when its retention and reclamation rule is documented and verified.
 
 ### EMB-MEM-STACK-001 [MUST]
 
-Every execution context MUST have a conservative stack bound that includes its deepest
-reachable call path, compiler-required frame space, interrupt nesting, and error paths.
+Every execution context MUST have a conservative stack bound covering its deepest reachable
+call path, compiler-required frame space, and error paths.
 
-- Applies when: Adding local objects, call depth, recursion, callbacks, interrupt handlers, or task entry functions.
-- Rationale: Stack overflow corrupts unrelated state and is often detected only after the original cause has disappeared.
-- Verification: Calculate or measure the worst-case high-water mark with the target compiler and configuration, and compare it with the reserved stack including a recorded margin.
-- Exceptions: None for a context that can execute the changed path; an exception requires an approved alternate stack and an equivalent bound.
+Where interrupts nest onto a stack, the bound MUST include the frame pushed at each nesting
+level plus the deepest call inside each handler at that level, because those frames
+accumulate on one stack.
+
+- Applies when: Adding local objects, call depth, recursion, callbacks, or a task entry function; adding a handler or enabling another nesting level.
+- Rationale: Overflow corrupts whatever the linker placed below the stack, so it surfaces as an unrelated fault long after the write. Nested handlers are the common way a bound that looked sufficient stops being sufficient.
+- Verification (agent): Trace the deepest reachable path in the change, including error branches and the nesting levels the project records as enabled, and compare the total against the reserved size and its margin. Report a missing recorded reservation as a gap.
+- Verification (target): Measure the worst-case high-water mark with the target compiler and configuration, forcing the deepest nesting path.
+- Exceptions: A project that disables interrupt nesting MAY budget a single interrupt frame when that configuration is recorded. Otherwise none for a context that can execute the changed path.
+
+Correct:
+
+```text
+Reserved interrupt stack: 512 bytes.
+Worst case: SPI0_TX (priority 1, 64 B) nested in UART0_RX (priority 3, 96 B) = 160 B.
+```
+
+Incorrect:
+
+```text
+The stack size was copied from an example project; no nesting depth was measured.
+```
 
 ### EMB-MEM-ALLOC-001 [MUST]
 
@@ -62,7 +82,8 @@ fails.
 
 - Applies when: Calling an allocator, pool, object factory, or reclamation routine, including indirectly from callbacks or interrupt-reachable code.
 - Rationale: Allocation latency, fragmentation, locks, and failure are context-dependent; treating allocation as infallible converts resource exhaustion into memory corruption.
-- Verification: Check the allocator policy and call context, inject exhaustion, and verify no partial object is published or released twice.
+- Verification (agent): Confirm each allocation site is in a context the project permits, has a failure branch, and leaves ownership and object state unchanged when it fails. An allocation whose result is used without a null check is a finding.
+- Verification (target): Inject exhaustion and confirm no partial object is published and nothing is released twice.
 - Exceptions: A fixed-size, statically initialized pool MAY be used when its bounded allocation, exhaustion, and reclamation semantics are recorded.
 
 ### EMB-MEM-LAYOUT-001 [MUST]
@@ -73,7 +94,8 @@ build-time check that proves it.
 
 - Applies when: Placing objects in RAM, nonvolatile memory, shared memory, DMA memory, bootloader regions, or retained sections.
 - Rationale: Incidental layout and compiler packing are not stable contracts and can silently break startup, persistence, or bus access.
-- Verification: Inspect the declaration, linker map, startup copy/zero tables, and assertion or post-link check for the target build.
+- Verification (agent): Confirm each object with a section, address, alignment, or retention requirement declares it through the project mechanism, and that a linker assertion or post-link check proves it. A requirement stated only in a comment is a finding.
+- Verification (target): Inspect the linker map and startup copy/zero tables for the target build, and confirm the assertion fires when the property is violated.
 - Exceptions: None for a property required by hardware or another image; a project MAY omit an attribute only when the checked linker contract already proves the property.
 
 ## Module examples

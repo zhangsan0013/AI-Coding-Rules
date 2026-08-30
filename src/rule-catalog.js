@@ -3,6 +3,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+// Three statuses, ordered from most to least reviewed. `provisional` is loadable: the rules
+// are complete and exemplified but no domain owner has signed them, so a consumer must report
+// them as unreviewed rather than as safety coverage. Only `draft` fails closed.
+const MODULE_STATUSES = ['active', 'provisional', 'draft'];
+
 function readStatus(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
   const statusMatch = content.match(/^Status:\s*(\S+)\s*$/m);
@@ -113,7 +118,7 @@ function validateRuleCatalog(catalog, repositoryRoot) {
   const modulePaths = new Set();
 
   for (const module of modulesById.values()) {
-    if (!['active', 'draft'].includes(module.status)) {
+    if (!MODULE_STATUSES.includes(module.status)) {
       throw new Error(`Catalog module "${module.id}" has unsupported status "${module.status}".`);
     }
     if (!Array.isArray(module.loadWhen) || module.loadWhen.length === 0) {
@@ -140,7 +145,7 @@ function validateRuleCatalog(catalog, repositoryRoot) {
 
   const profilePaths = new Set();
   for (const profile of profilesById.values()) {
-    if (!['active', 'draft'].includes(profile.status)) {
+    if (!MODULE_STATUSES.includes(profile.status)) {
       throw new Error(`Catalog profile "${profile.id}" has unsupported status "${profile.status}".`);
     }
     assertReferencesExist(profile.inherits, profilesById, `profile "${profile.id}" inheritance`);
@@ -190,7 +195,7 @@ function resolveRuleModuleIds(catalog, profileId, signals = [], options = {}) {
 
   function assertUsable(entry, kind) {
     if (entry.status === 'draft' && !allowDraft) {
-      throw new Error(`${kind} "${entry.id}" is draft. Pass --allow-draft for authoring or experimentation.`);
+      throw new Error(`${kind} "${entry.id}" is draft and incomplete. Pass --allow-draft for authoring or experimentation.`);
     }
   }
 
@@ -252,4 +257,5 @@ module.exports = {
   loadRuleCatalog,
   resolveRuleModuleIds,
   validateRuleCatalog,
+  MODULE_STATUSES,
 };

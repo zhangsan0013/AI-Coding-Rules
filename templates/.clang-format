@@ -5,9 +5,14 @@
 # project or to review. A formatter configuration that encodes requirements the rules do
 # not state would become a second, hidden rule source, which this library forbids.
 #
-# Enforced: C-STYLE-FORMAT-001, C-STYLE-BRACES-001, C-STYLE-SWITCH-001, C-STYLE-POINTER-001.
-# Review only: C-STYLE-DECLARATION-001, C-STYLE-SIZEOF-001, C-STYLE-COMMENT-001,
-#              C-STYLE-INCREMENT-001, C-STYLE-TRAILING-001, C-API-DOCSTYLE-001.
+# Fully enforced here, so review should spend no attention on them:
+#   C-STYLE-FORMAT-001, C-STYLE-BRACES-001, C-STYLE-SWITCHFMT-001, C-STYLE-POINTER-001.
+#
+# Not enforceable by a formatter, so they stay review or compiler items:
+#   C-STYLE-SWITCH-001    unhandled-value behavior; use -Wswitch-enum
+#   C-STYLE-SIZEOF-001    use -Wsizeof-pointer-memaccess
+#   C-STYLE-INCREMENT-001 use -Wsequence-point
+#   C-STYLE-DECLARATION-001, C-STYLE-COMMENT-001, C-STYLE-TRAILING-001, C-API-DOCSTYLE-001
 #
 # Verify with: clang-format --dry-run --Werror <file>
 Language: Cpp
@@ -49,7 +54,7 @@ SpaceAfterControlStatementKeyword: true
 AlwaysBreakAfterReturnType: None
 PenaltyReturnTypeOnItsOwnLine: 1000
 
-# C-STYLE-SWITCH-001: case and default indent one level inside the switch.
+# C-STYLE-SWITCHFMT-001: case and default indent one level inside the switch.
 IndentCaseLabels: true
 
 # C-STYLE-POINTER-001: the asterisk sits next to the declarator, one per declaration.

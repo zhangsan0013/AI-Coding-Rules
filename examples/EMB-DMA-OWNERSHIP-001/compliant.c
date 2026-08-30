@@ -10,6 +10,6 @@ static uint8_t tx_buffer[128] = {0U};
 
 bool transmit(void)
 {
-    dma_prepare_for_device(tx_buffer, sizeof tx_buffer);
-    return dma_start(tx_buffer, sizeof tx_buffer);
+    dma_prepare_for_device(tx_buffer, sizeof(tx_buffer));
+    return dma_start(tx_buffer, sizeof(tx_buffer));
 }

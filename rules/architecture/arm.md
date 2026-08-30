@@ -1,6 +1,6 @@
 # Arm Architecture Rules
 
-Status: draft
+Status: provisional
 
 ## Scope
 
@@ -34,7 +34,8 @@ convention, data layout, and instruction-set state selected for the target.
 
 - Applies when: Writing assembly, using ABI or calling-convention attributes, exporting symbols, mixing object files, or changing floating-point settings.
 - Rationale: An ABI mismatch can corrupt registers or stack state while each translation unit still appears type-correct.
-- Verification: Inspect compiler flags, symbol attributes, object metadata, and a cross-language or cross-object call test.
+- Verification (agent): Confirm each assembly boundary, ABI attribute, and exported symbol matches the one selected convention, and that floating-point and instruction-set settings agree across the objects being linked.
+- Verification (target): Inspect compiler flags and object metadata, and run a cross-language or cross-object call test.
 - Exceptions: A boundary MAY use another convention only through a reviewed adapter that documents and verifies both sides.
 
 ### ARCH-ARM-EXCEPTION-001 [MUST]
@@ -44,7 +45,8 @@ port-defined mode, stack, alignment, and saved-state protocol.
 
 - Applies when: Implementing vectors, handlers, context switches, fault handlers, naked functions, or manually restoring exception state.
 - Rationale: Exception entry is not an ordinary C call; an incorrect frame or return token can prevent recovery or return to the wrong privilege/context.
-- Verification: Compare the handler and assembly stub with the core reference manual and port, and test nested, fault, and extended-frame cases that apply.
+- Verification (agent): Confirm handlers, naked functions, and context-switch code follow the port's stack, alignment, and saved-state protocol, and return through the documented mechanism rather than an ordinary `return`.
+- Verification (target): Compare the handler and any assembly stub against the core reference manual, and test nested, fault, and extended-frame cases.
 - Exceptions: A hand-written sequence MAY replace the port stub only when the complete saved-state and return proof is recorded.
 
 ### ARCH-ARM-BARRIER-001 [MUST]
@@ -55,7 +57,8 @@ unsupported atomic operation.
 
 - Applies when: Ordering normal memory, device memory, interrupt state, DMA descriptors, or instruction updates.
 - Rationale: DMB, DSB, and ISB have different effects and domains, while ordering alone does not make a conflicting access atomic.
-- Verification: State the producer, consumer, memory type, domain, and required effect, then inspect the target sequence and test the handoff.
+- Verification (agent): Confirm the barrier matches the effect required: `DMB` for ordering between accesses, `DSB` for completion before the next step, `ISB` after a change that affects instruction fetch. A barrier standing in for an atomic operation is a finding.
+- Verification (target): State the producer, consumer, memory type, and required effect, then inspect the generated sequence and test the handoff.
 - Exceptions: A project synchronization adapter MAY hide the instruction when it documents the equivalent target-specific barrier.
 
 ### ARCH-ARM-ATOMIC-001 [MUST]
@@ -66,7 +69,8 @@ failure path.
 
 - Applies when: Using exclusive load/store, compare-and-swap, atomic read-modify-write, or compiler atomic builtins.
 - Rationale: Optional extensions, alignment, interrupts, and contention affect both availability and progress of an atomic sequence.
-- Verification: Check target flags and core support, prove the retry bound, and test contention, spurious failure, and exhaustion paths.
+- Verification (agent): Confirm each atomic or exclusive access uses a width and alignment the core supports, and that an exclusive sequence is not interrupted by an operation that clears the monitor.
+- Verification (target): Check the target atomic guarantees and test the contended and interrupted cases.
 - Exceptions: An unbounded retry MAY be used only in a context with a separately proven finite contention bound and recorded budget.
 
 ### ARCH-ARM-ALIGN-001 [MUST]
@@ -76,7 +80,8 @@ and fault configuration document the access as valid for that object.
 
 - Applies when: Casting byte buffers, mapping wire formats, using packed structures, or issuing multi-byte loads and stores.
 - Rationale: Alignment behavior varies by instruction and core and can change from a slower access to a fault or a split peripheral transaction.
-- Verification: Inspect object alignment and generated access width, and test the minimum alignment and fault behavior on the target.
+- Verification (agent): Confirm each unaligned or packed access is one the core and its configuration permit. A cast from a byte pointer to a wider type over protocol data is a finding unless unaligned access is recorded as supported.
+- Verification (target): Test the access on the target with alignment fault checking enabled.
 - Exceptions: A byte-wise adapter MAY decode an unaligned representation when it preserves the specified endianness and bounds.
 
 ## Module examples

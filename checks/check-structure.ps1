@@ -25,24 +25,22 @@ foreach ($relativePath in $requiredFiles) {
     }
 }
 
-# Vendored installation snapshots are self-contained copies of the rules. They are validated
-# by the installer and must not be rescored as a second rule source.
-$scanExclusions = @('sandbox')
-$markdownFiles = Get-ChildItem -LiteralPath $repositoryRoot -Recurse -File -Filter '*.md' |
-    Where-Object {
-        $relative = [System.IO.Path]::GetRelativePath($repositoryRoot, $_.FullName).Replace('\', '/')
-        $excluded = $false
-        foreach ($prefix in $scanExclusions) {
-            if ($relative -eq $prefix -or $relative.StartsWith("$prefix/")) {
-                $excluded = $true
-            }
-        }
-        $_.Name -ne 'CODING_RULES.md' -and -not $excluded
-    }
+$markdownFiles = Get-ChildItem -LiteralPath $repositoryRoot -Recurse -File -Filter '*.md'
 $linkPattern = [regex]'\[[^\]]+\]\((?<target>[^)]+)\)'
 $rulePattern = [regex]'(?m)^###\s+(?<id>[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,})\s+\[(?:MUST|SHOULD|MAY)\]\s*$'
 $ruleLocations = @{}
-$requiredRuleMetadata = @('Applies when:', 'Rationale:', 'Verification:', 'Exceptions:')
+# Verification is stated in two parts so an unrunnable target step cannot stand in for the
+# agent-side check. CORE-CHG-VERIFY-001 depends on both being present.
+$requiredRuleMetadata = @(
+    'Applies when:'
+    'Rationale:'
+    'Verification (agent):'
+    'Verification (target):'
+    'Exceptions:'
+)
+# Ordered from most to least reviewed. A profile may not name a module that is less
+# reviewed than the profile itself claims to be.
+$statusRank = @{ 'active' = 0; 'provisional' = 1; 'draft' = 2 }
 
 foreach ($file in $markdownFiles) {
     $content = Get-Content -LiteralPath $file.FullName -Raw
@@ -58,12 +56,12 @@ foreach ($file in $markdownFiles) {
         if ($moduleRules.Count -eq 0) {
             $errors.Add("Rule module has no normative rules: $relativeFile")
         }
-        if ($statusMatch.Groups['status'].Value -eq 'draft') {
+        if ($statusMatch.Groups['status'].Value -in @('draft', 'provisional')) {
             if ($content -notmatch '(?m)^Correct:\s*$') {
-                $errors.Add("Draft rule module has no compliant example: $relativeFile")
+                $errors.Add("Unreviewed rule module has no compliant example: $relativeFile")
             }
             if ($content -notmatch '(?m)^Incorrect:\s*$') {
-                $errors.Add("Draft rule module has no violating example: $relativeFile")
+                $errors.Add("Unreviewed rule module has no violating example: $relativeFile")
             }
         }
         foreach ($ruleMatch in $moduleRules) {
@@ -164,7 +162,7 @@ if ($null -ne $catalog) {
             $catalogModulePaths[$modulePath] = $moduleId
         }
 
-        if ($module.status -notin @('active', 'draft')) {
+        if ($module.status -notin $statusRank.Keys) {
             $errors.Add("Unsupported rule catalog module status ${moduleId}: $($module.status)")
         }
         $loadWhen = @($module.loadWhen)
@@ -229,14 +227,16 @@ if ($null -ne $catalog) {
         } else {
             $catalogProfilePaths[$profilePath] = $profileId
         }
-        if ($profile.status -notin @('active', 'draft')) {
+        if ($profile.status -notin $statusRank.Keys) {
             $errors.Add("Unsupported rule catalog profile status ${profileId}: $($profile.status)")
         }
         foreach ($moduleId in @($profile.baseline)) {
             if (-not $catalogModuleIds.ContainsKey([string]$moduleId)) {
                 $errors.Add("Unknown rule catalog baseline module ${moduleId}: $profileId")
-            } elseif ($profile.status -eq 'active' -and $catalogModuleIds[[string]$moduleId].status -ne 'active') {
-                $errors.Add("Active profile baseline contains a non-active module ${moduleId}: $profileId")
+            } elseif ($statusRank.ContainsKey($profile.status) -and
+                      $statusRank.ContainsKey($catalogModuleIds[[string]$moduleId].status) -and
+                      $statusRank[$catalogModuleIds[[string]$moduleId].status] -gt $statusRank[$profile.status]) {
+                $errors.Add("Profile baseline contains a less-reviewed module ${moduleId}: $profileId")
             }
         }
 
@@ -260,8 +260,10 @@ if ($null -ne $catalog) {
         foreach ($parent in @($profile.inherits)) {
             if (-not $catalogProfileIds.ContainsKey([string]$parent)) {
                 $errors.Add("Unknown rule catalog profile parent ${parent}: $profileId")
-            } elseif ($profile.status -eq 'active' -and $catalogProfileIds[[string]$parent].status -ne 'active') {
-                $errors.Add("Active profile inherits a non-active profile ${parent}: $profileId")
+            } elseif ($statusRank.ContainsKey($profile.status) -and
+                      $statusRank.ContainsKey($catalogProfileIds[[string]$parent].status) -and
+                      $statusRank[$catalogProfileIds[[string]$parent].status] -gt $statusRank[$profile.status]) {
+                $errors.Add("Profile inherits a less-reviewed profile ${parent}: $profileId")
             }
         }
     }

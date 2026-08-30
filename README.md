@@ -39,11 +39,9 @@ npx @zhangsan0013/ai-coding-rules init
 The default profile is `bare-metal-c11`. Choose another profile explicitly when needed:
 
 ```bash
-npx @zhangsan0013/ai-coding-rules init --profile rtos-c11 --allow-draft
+npx @zhangsan0013/ai-coding-rules init --profile rtos-c11
 ```
 
-The `rtos-c11`, `freertos-c11`, and `stm32-freertos` profiles are currently draft because
-their runtime, architecture, and platform modules have not completed domain-owner review.
 Runtime adapters, architectures, and toolchains are independent selectors; for example:
 
 ```bash
@@ -51,12 +49,25 @@ npx @zhangsan0013/ai-coding-rules resolve \
   --profile rtos-c11 \
   --signal rtos-rt-thread \
   --signal architecture-riscv \
-  --signal toolchain-gcc \
-  --allow-draft
+  --signal toolchain-gcc
 ```
 
-Use `--allow-draft` only for authoring or experimentation; a draft profile or module is
-not a claim of complete safety coverage.
+### Review status
+
+Modules and profiles carry one of three statuses:
+
+| Status | Meaning | Installs by default |
+| --- | --- | --- |
+| `active` | Reviewed by a domain owner. | yes |
+| `provisional` | Rules complete and exemplified; not yet reviewed. | yes, labeled unreviewed |
+| `draft` | Rules not written yet. | no, needs `--allow-draft` |
+
+All embedded, RTOS, architecture, and toolchain modules are currently `provisional`, which
+makes every embedded profile `provisional` too. The installer and resolver both say so in
+their output. Apply those rules, and do not present them as complete safety coverage; the
+[domain review register](docs/domain-coverage-review.md) tracks what each module still needs.
+
+Use `--allow-draft` only for authoring rules that are not finished.
 
 The command creates `.ai-rules/`, a managed block in `AGENTS.md`, and
 `PROJECT_RULES.md` when it does not already exist. Existing project instructions and
@@ -78,8 +89,9 @@ npx @zhangsan0013/ai-coding-rules resolve \
   --signal public-interface
 ```
 
-The resolver reports stable module IDs and status in deterministic order. A signal that
-selects a draft module fails unless `--allow-draft` is supplied.
+The resolver reports stable module IDs and status in deterministic order, and notes how many
+of them are provisional. A signal that selects a `draft` module fails unless `--allow-draft`
+is supplied.
 
 ## Verification tooling
 
@@ -113,7 +125,3 @@ npm run check:examples
 3. Copy `templates/PROJECT_RULES.md` to the target project root and fill in known facts.
 4. Select one profile from `profiles/`.
 5. Run `pwsh -File .ai-rules/checks/check-structure.ps1`.
-
-`CODING_RULES.md` is retained as source material for future migration. It is not yet the
-canonical rule library and should be split, reviewed, and assigned stable rule IDs before
-its contents move under `rules/`.

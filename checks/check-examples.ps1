@@ -9,7 +9,7 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $errors = [System.Collections.Generic.List[string]]::new()
 $rulePattern = [regex]'(?m)^###\s+(?<id>[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,})\s+\[(?:MUST|SHOULD|MAY)\]\s*$'
 $ruleLocations = @{}
-$draftModules = @{}
+$unreviewedModules = @{}
 $rulesRoot = Join-Path $repositoryRoot 'rules'
 $examplesRoot = Join-Path $repositoryRoot 'examples'
 
@@ -21,8 +21,8 @@ foreach ($file in Get-ChildItem -LiteralPath $rulesRoot -Recurse -File -Filter '
     $relativeFile = [System.IO.Path]::GetRelativePath($repositoryRoot, $file.FullName).Replace('\', '/')
     $content = Get-Content -LiteralPath $file.FullName -Raw
     $statusMatch = [regex]::Match($content, '(?m)^Status:\s*(?<status>\S+)\s*$')
-    if ($statusMatch.Success -and $statusMatch.Groups['status'].Value -eq 'draft') {
-        $draftModules[$relativeFile] = $true
+    if ($statusMatch.Success -and $statusMatch.Groups['status'].Value -in @('draft', 'provisional')) {
+        $unreviewedModules[$relativeFile] = $true
     }
     foreach ($ruleMatch in $rulePattern.Matches($content)) {
         $ruleLocations[$ruleMatch.Groups['id'].Value] = $relativeFile
@@ -48,16 +48,18 @@ foreach ($directory in Get-ChildItem -LiteralPath $examplesRoot -Directory) {
     }
 }
 
-foreach ($draftModulePath in $draftModules.Keys) {
+# A module that has not passed domain-owner review must carry at least one compilable
+# external example, so the unreviewed rules have machine-checked evidence behind them.
+foreach ($modulePath in $unreviewedModules.Keys) {
     $hasExample = $false
     foreach ($ruleId in $ruleLocations.Keys) {
-        if ($ruleLocations[$ruleId] -eq $draftModulePath -and $exampleIds.ContainsKey($ruleId)) {
+        if ($ruleLocations[$ruleId] -eq $modulePath -and $exampleIds.ContainsKey($ruleId)) {
             $hasExample = $true
             break
         }
     }
     if (-not $hasExample) {
-        $errors.Add("Draft rule module has no paired external example: $draftModulePath")
+        $errors.Add("Unreviewed rule module has no paired external example: $modulePath")
     }
 }
 

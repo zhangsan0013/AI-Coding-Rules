@@ -1,5 +1,5 @@
 /*
- * EMB-ISR-MASK-001 violating example.
+ * EMB-CONC-CRITICAL-001 violating example.
  *
  * Two defects on two different paths:
  *   1. The early return leaves interrupts masked, so the caller's system is dead.
