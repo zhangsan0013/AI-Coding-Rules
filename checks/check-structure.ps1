@@ -12,7 +12,7 @@ $requiredFiles = @(
     'rules/README.md'
     'rules/INDEX.md'
     'rules/catalog.json'
-    'profiles/bare-metal-c11.md'
+    'profiles/rtos-c11.md'
     'templates/AGENTS.md'
     'templates/PROJECT_RULES.md'
     'templates/.clang-format'

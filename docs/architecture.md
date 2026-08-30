@@ -18,6 +18,11 @@ an AI agent. `rules/catalog.json` is the machine-readable routing interface used
 resolver and checks. Detailed embedded knowledge remains local to the applicable rule
 modules.
 
+The context command adds a bounded presentation layer without changing that ownership:
+`route` and `summary` are navigation views, `rules` is a selected normative section without
+evidence, and `evidence` is loaded only for verification or explanation. The Markdown modules
+remain the only normative source.
+
 ## Responsibilities
 
 | Part | Responsibility | Must not do |
@@ -49,14 +54,23 @@ overridden.
 
 ## Static and dynamic selection
 
-A profile performs static selection. The `embedded-c11` profile supplies the neutral C11
-baseline. Runtime profiles add generic runtime modules, while vendor adapters, architecture,
-and toolchain modules can be selected independently.
+A profile performs static selection. The `rtos-c11` profile supplies the C11, embedded-memory,
+and generic RTOS baseline. Vendor adapters, architecture, and toolchain modules can be selected
+independently.
+
+The supported surface is RTOS-only: there is no bare-metal profile. RTOS firmware still uses
+hardware-facing modules when a task signal shows that registers, interrupts, DMA, startup,
+representation, architecture, or toolchain behavior is involved.
 
 The catalog and resolver perform dynamic selection from explicit task signals. They add DMA
 rules only to work marked with the `dma` signal, public-interface rules only when a public
 header or exported symbol change is marked with `public-interface`, and a vendor adapter
 only when its runtime signal is present.
+
+The resolver returns module IDs for compatibility. `ai-coding-rules context` consumes that
+ordered set and enforces a 6,000-token default budget with an 8,000-token hard maximum while
+exposing only the requested stage and selected rule IDs. A budget overflow is an explicit
+error; it never silently drops a safety rule.
 
 The intended selection shape is orthogonal rather than a profile for every product matrix:
 

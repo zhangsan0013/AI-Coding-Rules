@@ -37,6 +37,19 @@ Incorrect:
 Use `MUST`, `SHOULD`, or `MAY` consistently. Stable IDs must not be reused after a rule is
 removed. Put larger examples under `examples/<RULE-ID>/` and link to them from the rule.
 
+### Progressive loading contract
+
+The `context` command exposes a bounded view of the canonical modules:
+
+1. `route` returns module IDs, paths, and statuses.
+2. `summary` returns module metadata and stable rule IDs for navigation only.
+3. `rules` returns selected rule sections without examples or verification evidence.
+4. `evidence` returns selected sections with examples and verification fields.
+
+Summaries and catalog entries are navigation metadata, not a second normative source. They
+must not introduce new `MUST`, `SHOULD`, or `MAY` requirements. Rule IDs and headings remain
+stable so a summary can be followed by a precise section read.
+
 ### Writing the two verification fields
 
 The split exists because a single `Verification:` field mixed steps an agent can perform with

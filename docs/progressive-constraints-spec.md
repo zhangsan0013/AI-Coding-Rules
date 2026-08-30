@@ -1,6 +1,6 @@
 # Progressive Constraints Specification
 
-Status: implementation through Phase 5.8 complete; domain-owner review pending
+Status: implementation through Phase 5.9 complete; domain-owner review pending
 
 Original baseline commit: `effe308`
 Current actionability baseline: `a0d6eba`
@@ -12,9 +12,9 @@ mostly a Markdown convention. An agent must interpret profiles and routing prose
 modules can be selected without a coverage signal, and installation can leave the
 selected profile inconsistent with `PROJECT_RULES.md`.
 
-The project is currently an embedded C11 rule library, not a domain-neutral constraint
-platform. Runtime, architecture, and toolchain concerns are represented as orthogonal
-selectors, while unreviewed hardware and RTOS requirements remain explicitly out of scope.
+The project is currently an RTOS-based embedded C11 rule library, not a domain-neutral
+constraint platform. Runtime, architecture, and toolchain concerns are represented as
+orthogonal selectors, while bare-metal firmware is outside the supported scope.
 
 ## Goals
 
@@ -126,16 +126,16 @@ Create this file with the goals, non-goals, interfaces, acceptance criteria, and
 progress log. This phase is complete when the file exists and the baseline commit is
 recorded.
 
-### Phase 1: installation integrity
+### Phase 1: installation integrity (historical)
 
-Mark only the currently covered bare-metal C11 profile active. Keep FreeRTOS and STM32
-profiles draft until their empty safety modules receive domain-reviewed rules. Add draft
-gating and synchronize the selected profile during profile-changing updates.
+The initial implementation marked the then-covered bare-metal C11 profile active. FreeRTOS and
+STM32 profiles stayed draft until their empty safety modules received domain-reviewed rules.
+Draft gating and selected-profile synchronization were added during this phase.
 
-> Superseded: the `freertos-c11` and `stm32-freertos` profiles were later removed. Vendor
-> and architecture concerns are selected orthogonally through task signals
-> (`rtos-freertos`, `architecture-arm`, …) on the neutral `rtos-c11` and `bare-metal-c11`
-> profiles rather than through preset product-matrix profiles.
+> Superseded: the original `freertos-c11`, `stm32-freertos`, `embedded-c11`, and
+> `bare-metal-c11` profiles were removed from the supported surface. Vendor and architecture
+> concerns are selected orthogonally through task signals (`rtos-freertos`, `architecture-arm`,
+> …) on the `rtos-c11` profile rather than through preset product-matrix profiles.
 
 ### Phase 2: deterministic routing
 
@@ -166,8 +166,9 @@ no consumer reads.
 ## Acceptance criteria
 
 - A normal install cannot select a `draft` profile.
-- A normal install of a `provisional` profile succeeds and reports the coverage as
+- A normal install of the `provisional` `rtos-c11` profile succeeds and reports the coverage as
   unreviewed.
+- The supported profile set contains only `rtos-c11`; bare-metal profiles are rejected.
 - A profile-changing update cannot leave a stale selected profile in
   `PROJECT_RULES.md`.
 - The catalog and Markdown module statuses cannot diverge without the structure check or
@@ -183,29 +184,31 @@ no consumer reads.
 | Phase | Status | Evidence |
 | --- | --- | --- |
 | 0. Specification and record | done | This file created against commit `effe308`. |
-| 1. Installation integrity | done | `src/cli.js`, `profiles/bare-metal-c11.md`, `README.md`, and `test/cli.test.js` updated. `npm test` passed 6/6; `pwsh -File checks/check-structure.ps1` passed. Draft profiles require `--allow-draft`, and profile-changing updates synchronize `PROJECT_RULES.md`. |
-| 2. Deterministic routing | done | Added `rules/catalog.json`, `src/rule-catalog.js`, resolver CLI output, and catalog routing documentation. `node bin/ai-coding-rules.js resolve --profile bare-metal-c11` returned a stable four-module baseline; explicit signals and draft failure behavior were also verified. |
+| 1. Installation integrity | done | `src/cli.js`, `profiles/rtos-c11.md`, `README.md`, and `test/cli.test.js` updated. `npm test` passed 6/6; `pwsh -File checks/check-structure.ps1` passed. Draft profiles require `--allow-draft`, and profile-changing updates synchronize `PROJECT_RULES.md`. |
+| 2. Deterministic routing | done | Added `rules/catalog.json`, `src/rule-catalog.js`, resolver CLI output, and catalog routing documentation. `node bin/ai-coding-rules.js resolve --profile rtos-c11` returned a stable baseline; explicit signals and draft failure behavior were also verified. |
 | 3. Verification and CI | done | Added catalog resolver tests, catalog-aware structure validation, `npm run check:structure`, and `.github/workflows/validate.yml`. Local `npm test` passed 11/11 and the structure check passed; hosted CI execution remains unverified in this session. |
 | 4. Domain coverage | implementation complete; review pending | The embedded, RTOS, architecture, and GCC modules now contain 171 normative rules with stable IDs and required metadata. Their inline examples and representative external fixtures are checked, while domain-owner target review remains open in the [domain review register](domain-coverage-review.md). |
-| Final verification | superseded by Phase 5.8 | The older 114-rule snapshot is retained as historical evidence; the current command results are recorded in Phase 5.8. |
-| 5.1 Status model unlocked | done | Added the `provisional` status to `src/rule-catalog.js`, `src/cli.js`, `checks/check-structure.ps1`, and `checks/check-examples.ps1`; moved 13 modules and 5 profiles onto it; added `embedded.memory` to the `embedded-c11` baseline and `embedded.register-access` to `bare-metal-c11`. A default `init` now delivers 6 modules instead of 4. Profile-to-module status comparison is by review rank, so a profile cannot reference a less-reviewed module. `npm test` passed 16/16; both checks passed. |
+| Final verification | superseded by Phase 5.9 | The older 114-rule snapshot is retained as historical evidence; the current command results are recorded below. |
+| 5.1 Status model unlocked | done | Added the `provisional` status to `src/rule-catalog.js`, `src/cli.js`, `checks/check-structure.ps1`, and `checks/check-examples.ps1`; moved 13 modules and 5 profiles onto it; added the embedded-memory and hardware baselines during the earlier profile split. A default `init` now delivers 6 modules instead of 4. Profile-to-module status comparison is by review rank, so a profile cannot reference a less-reviewed module. `npm test` passed 16/16; both checks passed. |
 | 5.2 Deduplication | done | Merged `EMB-ISR-MASK-001` into `EMB-CONC-CRITICAL-001` (example dir renamed) and `EMB-ISR-STACK-001` into `EMB-MEM-STACK-001`; narrowed `EMB-ISR-DURATION-001` to latency-budget composition and `EMB-ISR-SHARED-001` to the interrupt-boundary delta; rewrote the three RTOS vendor modules as thin bindings to `rtos.common`, dropping 8 restated rules. 114 → 105 normative rules. |
 | 5.3 Strength recalibration | done | Split formatting from correctness across `c11/style.md`, `c11/naming.md`, `c11/public-interface.md`, `c11/preprocessor.md`: formatting rules became SHOULD pointing at the formatter (`C-STYLE-SWITCHFMT-001` split out of `SWITCH-001`, `C-NAME-RESERVED-001` split out of `SNAKE-001`), while `C-STYLE-INCREMENT-001` rose to MUST as undefined behavior. Embedded/RTOS/architecture/toolchain modules stayed MUST after review; each names corruption, a hang, or data loss rather than a preference. `templates/.clang-format` comments updated. MUST is 90 of 108, not the ~40 first estimated. |
 | 5.4 INIT rule fix | done | Rewrote `C-STYLE-INIT-001` to MISRA-9.1 semantics (assigned-before-read MUST; static/thread explicit initializer MUST) and added `C-STYLE-INIT-002` (initialize at declaration when known; a placeholder-only initializer is a finding). Corrected the interrupt-module examples that read uninitialized ring indices. |
 | 5.5 Verification split | done | Split every rule's `Verification:` into `Verification (agent):` (readable/toolchain, must run) and `Verification (target):` (hardware/measurement, deferred and recorded). `CORE-CHG-VERIFY-001` rewritten to govern the two; `rules/README.md` documents the format and the MUST/SHOULD test; `checks/check-structure.ps1` now requires both fields. |
-| 5.6 Coverage gaps | done | Added `c11.arithmetic` (promotion, shift, signed/unsigned conversion, signed overflow), `embedded.representation` (wire byte order, unaligned access, fixed-width fields vs bit-fields), and `embedded.startup` (`.data`/`.bss` readiness, progress-gated watchdog, bring-up ordering). Two new signals (`arithmetic`, `representation`, `startup`); `embedded.startup` joins the `bare-metal-c11` baseline. Three new paired example directories. 105 → 118 rules. |
+| 5.6 Coverage gaps | done | Added `c11.arithmetic` (promotion, shift, signed/unsigned conversion, signed overflow), `embedded.representation` (wire byte order, unaligned access, fixed-width fields vs bit-fields), and `embedded.startup` (`.data`/`.bss` readiness, progress-gated watchdog, bring-up ordering). Two new signals (`arithmetic`, `representation`, `startup`); startup is signal-selected for the RTOS profile. Three new paired example directories. 105 → 118 rules. |
 | 5.7 Routing unified | done | Added a signal-derivation table to `rules/INDEX.md` mapping what a change touches to the signal and module, covering all areas including the three new ones. The catalog step in the managed AGENTS.md block is retained; the table closes the gap between knowing an area and knowing its signal name. |
 | 5.8 Actionability contract | implementation complete; domain-owner review pending | Added the rule actionability design, rule-level `Correct:`/`Incorrect:` requirements for every retained `MUST`, explicit verification artifact/pass criteria, non-placeholder structure gates, a cross-platform Node contract test, and the [rule audit ledger](rule-audit-ledger.md). Current inventory is 171 rules (163 `MUST`, 8 `SHOULD`, 0 `MAY`) across 22 modules; all 171 are `contract-pass` after compound rules were split or narrowed. Local validation is recorded in the final verification section below. |
+| 5.9 RTOS-only scope | done | Removed the `embedded-c11` and `bare-metal-c11` public profiles, made `rtos-c11` the direct six-module baseline and CLI default, rejected removed profile IDs, and synchronized the catalog, structure check, tests, README, architecture guide, and migration note. RTOS hardware modules remain available through explicit task signals. |
+| 5.10 Bounded context views | done | Added `src/rule-context.js` and the `context` CLI command with `route`, `summary`, `rules`, and `evidence` stages. Summary output is navigation-only, selected rule reads omit evidence by default, and a 6,000-token default with an 8,000-token hard maximum fails closed instead of silently dropping rules. Updated the consuming-project template, routing index, profile guidance, README, architecture guide, and tests. |
 
 ### Current verification snapshot
 
-The current tree has 40 Markdown files, 171 normative rules, and 17 representative paired
+The current tree has 38 Markdown files, 171 normative rules, and 17 representative paired
 external example directories. `npm test`, the PowerShell structure check, the external example
 check, and `git diff --check` must be rerun after any rule or ledger change. Hosted CI, target
 hardware measurements, target RTOS/ABI checks, and domain-owner sign-off remain outstanding.
 
-Local verification on 2026-08-30: `npm test` passed 20/20 tests; `npm run check:structure`
-passed with 40 Markdown files and 171 rules; `npm run check:examples` passed all 17 paired
+Local verification on 2026-08-30: `npm test` passed 30/30 tests; `npm run check:structure`
+passed with 38 Markdown files and 171 rules; `npm run check:examples` passed all 17 paired
 directories with GCC (including the expected lifetime violation warning); and `git diff --check`
 reported no whitespace errors (only Git's LF-to-CRLF advisory for the working tree).
 
@@ -222,6 +225,10 @@ Each completed phase adds one row to the progress log and records:
 
 - Task signals are explicit inputs; the resolver does not infer them from natural-language
   prompts or file diffs.
+- The context budget defaults to 6,000 estimated tokens and cannot exceed 8,000. It is a
+  deterministic UTF-8 byte estimate, not the exact tokenizer cost of a specific model. System
+  prompts, Skills, MCP tools, plugins, target source, history, and tool output remain outside
+  this repository's budget and must be measured by the consuming agent.
 - Rules that link to `examples/` require `examples` to stay in the installer's managed
   paths and in the package `files` list; dropping it makes the installed copy of every
   such rule fail link validation.
@@ -229,7 +236,7 @@ Each completed phase adds one row to the progress log and records:
   modules are `provisional`: they carry complete rules and examples but have not passed
   domain-owner review, so they load by default and must be reported as unreviewed rather than
   as complete safety coverage.
-- Because those modules appear in profile baselines, every embedded profile is also
+- Because those modules appear in the RTOS baseline, the `rtos-c11` profile is also
   `provisional`. No profile in the repository is currently `active`.
 - Hosted CI has been configured but was not executed against a remote provider in this
   session.

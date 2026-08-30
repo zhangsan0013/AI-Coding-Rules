@@ -5,11 +5,17 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { loadRuleCatalog, resolveRuleModuleIds, MODULE_STATUSES } = require('./rule-catalog');
+const {
+  buildRuleContext,
+  CONTEXT_STAGES,
+  DEFAULT_CONTEXT_BUDGET,
+  MAX_CONTEXT_BUDGET,
+} = require('./rule-context');
 
 const packageRoot = path.resolve(__dirname, '..');
 const packageInfo = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
 
-const DEFAULT_PROFILE = 'bare-metal-c11';
+const DEFAULT_PROFILE = 'rtos-c11';
 const MANIFEST_FILE = '.install-manifest.json';
 const MANAGED_PATHS = ['rules', 'profiles', 'templates', 'docs', 'checks', 'examples', 'README.md'];
 const AGENTS_BEGIN = '<!-- AI-CODING-RULES:BEGIN -->';
@@ -24,6 +30,11 @@ function parseArgs(argv) {
     force: false,
     allowDraft: false,
     signals: [],
+    stage: 'summary',
+    budgetTokens: DEFAULT_CONTEXT_BUDGET,
+    moduleIds: [],
+    ruleIds: [],
+    format: 'text',
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -50,6 +61,49 @@ function parseArgs(argv) {
       options.signals.push(signalMatch[1] || argv[++index]);
       if (!options.signals[options.signals.length - 1]) {
         throw new Error('--signal requires a value.');
+      }
+      continue;
+    }
+    const stageMatch = argument.match(/^--stage(?:=(.*))?$/);
+    if (stageMatch) {
+      options.stage = stageMatch[1] || argv[++index];
+      if (!options.stage) {
+        throw new Error('--stage requires a value.');
+      }
+      continue;
+    }
+    const budgetMatch = argument.match(/^--budget(?:=(.*))?$/);
+    if (budgetMatch) {
+      const value = budgetMatch[1] || argv[++index];
+      if (!value || !/^\d+$/.test(value) || Number(value) <= 0) {
+        throw new Error('--budget requires a positive integer.');
+      }
+      options.budgetTokens = Number(value);
+      continue;
+    }
+    const moduleMatch = argument.match(/^--module(?:=(.*))?$/);
+    if (moduleMatch) {
+      const moduleId = moduleMatch[1] || argv[++index];
+      if (!moduleId) {
+        throw new Error('--module requires a value.');
+      }
+      options.moduleIds.push(moduleId);
+      continue;
+    }
+    const ruleMatch = argument.match(/^--rule(?:=(.*))?$/);
+    if (ruleMatch) {
+      const ruleId = ruleMatch[1] || argv[++index];
+      if (!ruleId) {
+        throw new Error('--rule requires a value.');
+      }
+      options.ruleIds.push(ruleId);
+      continue;
+    }
+    const formatMatch = argument.match(/^--format(?:=(.*))?$/);
+    if (formatMatch) {
+      options.format = formatMatch[1] || argv[++index];
+      if (!options.format) {
+        throw new Error('--format requires a value.');
       }
       continue;
     }
@@ -228,11 +282,12 @@ function buildAgentsBlock(profile) {
     '',
     '1. Read `PROJECT_RULES.md` for verified project facts and approved exceptions.',
     '2. Read `.ai-rules/profiles/' + profile + '.md` for the selected project baseline.',
-    '3. Read `.ai-rules/rules/INDEX.md` for the routing vocabulary.',
-    '4. Use `.ai-rules/rules/catalog.json` or the resolver to identify the module IDs',
-    '   selected by the profile and the current task signals.',
-    '5. Load the always-required modules and only the task-specific modules that apply.',
-    '6. If omitting a safety-related module is uncertain, load it and state the uncertainty.',
+    '3. Run `npx @zhangsan0013/ai-coding-rules context --stage summary --budget 6000`',
+    '   with every applicable task signal to get the bounded route and rule IDs.',
+    '4. Read only the selected rule sections with `--stage rules --rule <RULE-ID>` or',
+    '   `--stage rules --module <MODULE-ID>`; do not load every module by default.',
+    '5. Load `--stage evidence` only when examples, detailed verification, or fixtures are needed.',
+    '6. If omitting a safety-related rule is uncertain, load it and state the uncertainty.',
     '',
     'Treat `.ai-rules/rules/` as the canonical general rule source. Apply project facts and',
     'approved exceptions using the precedence defined in `.ai-rules/docs/architecture.md`.',
@@ -435,6 +490,7 @@ Commands:
   init                         Initialize the current project.
   update                       Update installed managed rules.
   resolve                      Resolve module IDs for a profile and task signals.
+  context                      Build a bounded rule context in stages.
 
 Options:
   --profile <name>             Profile (default: ${DEFAULT_PROFILE} for init).
@@ -442,7 +498,12 @@ Options:
   --dry-run                    Show changes without writing files.
   --force                      Allow replacing locally modified managed rules.
   --allow-draft                Allow draft profiles during authoring or experimentation.
-  --signal <name>              Add a task signal for the resolve command. Repeatable.
+  --signal <name>              Add a task signal for resolve or context. Repeatable.
+  --stage <name>               Context stage: ${CONTEXT_STAGES.join(', ')} (default: summary).
+  --budget <tokens>            Context token budget (default: ${DEFAULT_CONTEXT_BUDGET}, max: ${MAX_CONTEXT_BUDGET}).
+  --module <id>                Restrict rules/evidence to a module. Repeatable.
+  --rule <id>                  Restrict rules/evidence to a rule. Repeatable.
+  --format <text|json>         Context output format (default: text).
   --help                       Show this help.
   --version                    Show the package version.
 `);
@@ -480,6 +541,29 @@ async function main(argv) {
     if (provisionalCount > 0) {
       console.log(`- note: ${provisionalCount} module(s) are provisional. Their rules are complete`);
       console.log('  but have not passed domain-owner review; do not report them as safety coverage.');
+    }
+    return;
+  }
+  if (options.command === 'context') {
+    const catalog = loadRuleCatalog(packageRoot);
+    const profile = options.profile || DEFAULT_PROFILE;
+    assertProfile(profile, options.allowDraft);
+    if (!['text', 'json'].includes(options.format)) {
+      throw new Error(`Unknown context format "${options.format}". Use text or json.`);
+    }
+    const context = buildRuleContext(catalog, profile, options.signals, {
+      allowDraft: options.allowDraft,
+      repositoryRoot: packageRoot,
+      stage: options.stage,
+      budgetTokens: options.budgetTokens,
+      moduleIds: options.moduleIds,
+      ruleIds: options.ruleIds,
+    });
+    if (options.format === 'json') {
+      console.log(JSON.stringify(context, null, 2));
+    } else {
+      console.log(context.text);
+      console.log(`\n<!-- estimated tokens: ${context.estimatedTokens}/${context.budgetTokens} -->`);
     }
     return;
   }

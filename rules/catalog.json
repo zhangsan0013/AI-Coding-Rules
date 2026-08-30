@@ -180,8 +180,8 @@
   ],
   "profiles": [
     {
-      "id": "embedded-c11",
-      "path": "embedded-c11.md",
+      "id": "rtos-c11",
+      "path": "rtos-c11.md",
       "status": "provisional",
       "inherits": [],
       "baseline": [
@@ -189,22 +189,9 @@
         "core.change-policy",
         "c11.style",
         "c11.naming",
-        "embedded.memory"
+        "embedded.memory",
+        "rtos.common"
       ]
-    },
-    {
-      "id": "bare-metal-c11",
-      "path": "bare-metal-c11.md",
-      "status": "provisional",
-      "inherits": ["embedded-c11"],
-      "baseline": ["embedded.register-access", "embedded.startup"]
-    },
-    {
-      "id": "rtos-c11",
-      "path": "rtos-c11.md",
-      "status": "provisional",
-      "inherits": ["embedded-c11"],
-      "baseline": ["rtos.common"]
     }
   ]
 }

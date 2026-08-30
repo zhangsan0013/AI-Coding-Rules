@@ -5,12 +5,14 @@
 Before changing code:
 
 1. Read `PROJECT_RULES.md` for verified project facts, the selected profile, and exceptions.
-2. Read the selected profile under `.ai-rules/profiles/`.
-3. Read `.ai-rules/rules/INDEX.md`.
-4. Use `.ai-rules/rules/catalog.json` or the resolver to identify the module IDs selected by
-   the profile and explicit task signals.
-5. Load the always-required modules and only the task-specific modules selected by the index.
-6. If omitting a safety-related module is uncertain, load it and state the uncertainty.
+2. Run `npx @zhangsan0013/ai-coding-rules context --stage summary --budget 6000` with every
+   applicable task signal. The result is a bounded navigation view, not a second rule source.
+3. Read only the selected rule sections with `--stage rules --rule <RULE-ID>` or
+   `--stage rules --module <MODULE-ID>`.
+4. Load `--stage evidence` only when examples, detailed verification, or external fixtures are
+   needed for the current change.
+5. If omitting a safety-related rule is uncertain, load it and state the uncertainty instead of
+   silently proceeding.
 
 ## Applying rules
 

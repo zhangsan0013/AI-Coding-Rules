@@ -22,6 +22,7 @@ semantically ready for promotion, while the consuming project records its own ta
 | Contract status `needs-rewrite` | 0 |
 | `demote` | 0 |
 | `delete` | 0 |
+| Repository review decisions confirmed | 6 |
 | Domain-owner review | 171 pending |
 | Target evidence | 171 pending |
 
@@ -82,7 +83,7 @@ now `contract-pass`.
 | `EMB-ERR-BOUNDS-001` | contract-pass | Narrowed to finite loop/retry/wait bounds; `EMB-ERR-RESULT-001` owns explicit result handling. |
 | `RTOS-COMMON-CONTEXT-001` | contract-pass | Narrowed to runtime/port service legality; `RTOS-COMMON-ISR-NOWAIT-001` owns the interrupt no-wait boundary. |
 | `RTOS-COMMON-BLOCK-001` | contract-pass | Narrowed to timeout/indefinite-wait policy; `RTOS-COMMON-BLOCK-RESULT-001` owns caller result handling. |
-| `RTOS-COMMON-OWNERSHIP-001` | contract-pass | Narrowed to owner assignment across object lifetime; `RTOS-COMMON-OWNERSHIP-002` owns shutdown/error-path validity. |
+| `RTOS-COMMON-OWNERSHIP-001` | contract-pass | Narrowed to owner assignment across object lifetime; `RTOS-COMMON-OWNERSHIP-002` owns terminal handle invalidation and release authority. |
 | `RTOS-COMMON-PRIORITY-001` | contract-pass | Narrowed to resource inversion policy; `RTOS-COMMON-PRIORITY-002` owns temporary changes and restoration. |
 | `RTOS-COMMON-LIFECYCLE-001` | contract-pass | Narrowed to stop-admission ordering; `RTOS-COMMON-LIFECYCLE-002` owns in-flight completion before reclamation. |
 | `RTOS-FREERTOS-ISR-001` | contract-pass | Narrowed to `FromISR` API and woken flag; `RTOS-FREERTOS-ISR-002` owns ISR-yield handoff. |
@@ -92,9 +93,9 @@ now `contract-pass`.
 ## Current rule status
 
 This table is exhaustive: its Rule ID set must equal the rule sections under `rules/`. The
-repository contract result is tracked separately from domain-owner review and target evidence;
-both review columns remain `pending` until a consuming project supplies configuration-specific
-evidence.
+repository contract result is tracked separately from the repository review decisions below,
+domain-owner review, and target evidence. A confirmed repository decision does not close either
+configuration-specific review column.
 
 | Rule ID | Contract | Domain review | Target evidence |
 | --- | --- | --- | --- |
@@ -271,6 +272,22 @@ evidence.
 | `TOOL-GCC-OPT-001` | contract-pass | pending | pending |
 | `TOOL-GCC-WARN-001` | contract-pass | pending | pending |
 <!-- END CURRENT_RULE_STATUS -->
+
+## Confirmed repository decisions
+
+This section records explicit repository-level decisions to retain, modify, or delete a rule.
+It does not claim target-specific domain review or target evidence; those remain in the status
+table until a consuming project supplies the required RTOS, port, compiler, and configuration
+artifacts.
+
+| Rule ID | Decision | Verification change | Confirmed |
+| --- | --- | --- | --- |
+| `RTOS-COMMON-CONTEXT-001` | retain and sign | Replaced unbounded context invocation and `100% of calls` wording with a finite reachable service-context matrix, explicit handling for prohibited pairs, and a bounded target evidence set. | 2026-08-30 |
+| `RTOS-COMMON-ISR-NOWAIT-001` | retain and sign | Replaced unbounded `100% of trials` wording with a finite ISR wait matrix, explicit resource-state coverage, and pre-wait rejection for prohibited or unknown calls. | 2026-08-30 |
+| `RTOS-COMMON-BLOCK-001` | retain and sign | Replaced unbounded `100% of cases` wording with a finite blocking-call inventory, explicit timeout/outcome coverage, and separate evidence for finite waits versus approved indefinite waits. | 2026-08-30 |
+| `RTOS-COMMON-BLOCK-RESULT-001` | retain and sign | Replaced unbounded `100% of trials` wording with a finite wait-result matrix, explicit handling for API-specific outcomes, and contract/static evidence when runtime injection is unsafe. | 2026-08-30 |
+| `RTOS-COMMON-OWNERSHIP-001` | retain and sign | Replaced unbounded `100% of trials` wording with a finite ownership lifecycle matrix, explicit transfer/release authority, and static proof for unsafe-to-exercise states. | 2026-08-30 |
+| `RTOS-COMMON-OWNERSHIP-002` | retain and sign | Narrowed the rule to terminal handle invalidation and unique release authority; moved in-flight completion and cancellation ownership to `RTOS-COMMON-LIFECYCLE-002`. | 2026-08-30 |
 
 ## ID migration record
 

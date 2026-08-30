@@ -21,20 +21,19 @@ function resolve(profile, signals, options = {}) {
   });
 }
 
-test('catalog resolves the bare-metal baseline in catalog order', () => {
-  assert.deepEqual(resolve('bare-metal-c11', []), [
+test('catalog resolves the RTOS-only baseline in catalog order', () => {
+  assert.deepEqual(resolve('rtos-c11', []), [
     'core.correctness',
     'core.change-policy',
     'c11.style',
     'c11.naming',
     'embedded.memory',
-    'embedded.register-access',
-    'embedded.startup',
+    'rtos.common',
   ]);
 });
 
 test('catalog adds modules selected by signals', () => {
-  assert.deepEqual(resolve('bare-metal-c11', ['public-interface', 'preprocessor']), [
+  assert.deepEqual(resolve('rtos-c11', ['public-interface', 'preprocessor']), [
     'core.correctness',
     'core.change-policy',
     'c11.style',
@@ -42,8 +41,7 @@ test('catalog adds modules selected by signals', () => {
     'c11.public-interface',
     'c11.preprocessor',
     'embedded.memory',
-    'embedded.register-access',
-    'embedded.startup',
+    'rtos.common',
   ]);
 });
 
@@ -60,7 +58,7 @@ test('catalog expands the generic RTOS profile and vendor adapter dependency', (
 });
 
 test('catalog composes runtime, architecture, and toolchain selectors independently', () => {
-  assert.deepEqual(resolve('embedded-c11', [
+  assert.deepEqual(resolve('rtos-c11', [
     'rtos-rt-thread',
     'architecture-riscv',
     'toolchain-gcc',
@@ -153,7 +151,7 @@ test('catalog rejects draft profiles and modules without explicit opt-in', (t) =
 
 test('catalog rejects unknown signals', () => {
   assert.throws(
-    () => resolve('bare-metal-c11', ['not-a-signal']),
+    () => resolve('rtos-c11', ['not-a-signal']),
     /Unknown resolver signal "not-a-signal"/,
   );
 });

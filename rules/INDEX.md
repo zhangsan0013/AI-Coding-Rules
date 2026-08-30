@@ -1,11 +1,26 @@
 # Rule Routing Index
 
-Load only the modules required by the current task. `PROJECT_RULES.md` and the selected
-profile establish the project baseline before this routing is applied.
+Load only the rules required by the current task. `PROJECT_RULES.md` and the selected profile
+establish the project baseline before this routing is applied. Use the context command's
+summary first, then read only the selected rule sections.
 
 Use [catalog.json](catalog.json) as the machine-readable source for stable module IDs,
 status, activation signals, dependencies, and profile inheritance. This page remains the
 human-readable routing explanation; the catalog does not duplicate normative rule text.
+
+## Context stages
+
+The bounded context interface has four stages:
+
+- `route`: module IDs, paths, and statuses only.
+- `summary`: module metadata and rule IDs for navigation; it is not normative text.
+- `rules`: the selected rule sections without examples or detailed verification evidence.
+- `evidence`: the selected rule sections with examples and verification fields.
+
+Use `npx @zhangsan0013/ai-coding-rules context --stage summary --budget 6000` for the first
+pass. Add `--rule <RULE-ID>` or `--module <MODULE-ID>` before requesting `rules` or `evidence`.
+The canonical Markdown module remains the only normative source; summaries and catalog data
+must not restate requirements.
 
 ## Always load
 
@@ -89,6 +104,7 @@ actually involves.
 A change usually matches several rows; pass every signal that applies. When two readings of
 the task differ on whether a safety-related signal applies, pass it.
 
-The resolver returns the ordered module IDs. A `provisional` profile or module resolves
-normally but must be reported as unreviewed rather than as safety coverage. A `draft` one
-requires explicit `--allow-draft`.
+The resolver returns the ordered module IDs. The `context` command uses that same ordered set
+to build a bounded route, summary, or selected rule/evidence payload. A `provisional` profile
+or module resolves normally but must be reported as unreviewed rather than as safety coverage.
+A `draft` one requires explicit `--allow-draft`.
